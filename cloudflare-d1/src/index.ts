@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import cityNames from '../data/geonames-city-names.json'
 import regionNames from '../data/region-names.json'
 import sourceClassification from '../data/source-classification.json'
+import faviconDomains from '../data/referer_favicon_domains.json'
 
 type Bindings = {
   DB: D1Database
@@ -37,6 +38,24 @@ const CITY_NAMES = cityNames as Record<string, string>
 const REGION_NAMES = regionNames as Record<string, string>
 const SOURCE_CATEGORIES = sourceClassification.categories as Record<string, string>
 const PAID_SOURCES = new Set(sourceClassification.paidSources as string[])
+const FAVICON_DOMAINS: Record<string, string> = {
+  ...(faviconDomains as Record<string, string>),
+  Brave: 'search.brave.com',
+  Kagi: 'kagi.com',
+  Wikipedia: 'en.wikipedia.org',
+  Discord: 'discord.com',
+  Perplexity: 'perplexity.ai',
+  LinkedIn: 'linkedin.com',
+  Linktree: 'linktr.ee',
+  Bluesky: 'bsky.app',
+  Mastodon: 'mastodon.social',
+  'Google Gemini': 'gemini.google.com',
+  ChatGPT: 'chatgpt.com',
+  Claude: 'claude.ai',
+  'Microsoft Copilot': 'copilot.com',
+  Grok: 'grok.com',
+  'X (Twitter)': 'x.com'
+}
 
 app.use('*', async (c, next) => {
   await next()
@@ -79,16 +98,96 @@ app.get('/api/stats/:domain/suggestions/custom-prop-values/:propKey', customProp
 app.get('/api/stats/:domain/suggestions/:key', suggestions)
 app.get('/api/stats/:domain/suggestions/:key/', suggestions)
 app.all('/api/stats/*', (c) => c.json({ error: 'not found' }, 404))
+app.get('/favicon/sources/:domain', sourceFavicon)
+app.get('/favicon/placeholders/:name', faviconPlaceholder)
 
 app.get('/', (c) => c.redirect(`/${DOMAIN}`))
 app.all('*', async (c) => {
   const path = c.req.path
   if (path === '/js/script.js') return c.env.ASSETS.fetch(new Request(new URL('/js/script.js', c.req.url)))
-  if (path.startsWith('/assets/') || path.startsWith('/js/')) return c.env.ASSETS.fetch(c.req.raw)
+  if (path.startsWith('/assets/') || path.startsWith('/js/') || path.startsWith('/images/')) return c.env.ASSETS.fetch(c.req.raw)
   if (path !== `/${DOMAIN}` && !path.startsWith(`/${DOMAIN}/`)) return c.text('Not found', 404)
   if (!(await isSignedIn(c.req.header('Cookie'), c.env.SESSION_SECRET))) return c.html(loginPage())
   return c.env.ASSETS.fetch(new Request(new URL('/index.html', c.req.url)))
 })
+
+async function sourceFavicon(c: Ctx) {
+  const rawSource = c.req.param('domain')
+  if (!rawSource) return faviconPlaceholder(c)
+  let source = rawSource
+  try {
+    source = decodeURIComponent(source)
+  } catch {
+    // Keep the original source name and fall back to the generic icon below.
+  }
+  const mappedDomain = FAVICON_DOMAINS[source] ?? source
+  const domain = mappedDomain.split('/', 1)[0].toLowerCase()
+  if (
+    domain.length > 253 ||
+    !/^[a-z0-9.-]+$/.test(domain) ||
+    domain.startsWith('.') ||
+    domain.endsWith('.')
+  ) {
+    return faviconPlaceholder(c)
+  }
+
+  let upstream: Response
+  try {
+    upstream = await fetch(`https://icons.duckduckgo.com/ip3/${domain}.ico`, {
+      redirect: 'follow'
+    })
+  } catch {
+    return faviconPlaceholder(c)
+  }
+  if (!upstream.ok) return faviconPlaceholder(c)
+
+  const image = await upstream.arrayBuffer()
+  const bytes = new Uint8Array(image)
+  const brokenPng =
+    bytes.length === 8 &&
+    [137, 80, 78, 71, 13, 10, 26, 10].every(
+      (value, index) => bytes[index] === value
+    )
+  if (!bytes.length || brokenPng) return faviconPlaceholder(c)
+
+  const prefix = new TextDecoder()
+    .decode(bytes.subarray(0, Math.min(bytes.length, 256)))
+    .trimStart()
+  const contentType =
+    prefix.startsWith('<svg') || prefix.startsWith('<?xml')
+      ? 'image/svg+xml'
+      : upstream.headers.get('content-type') ?? 'image/x-icon'
+  return new Response(image, {
+    status: 200,
+    headers: {
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=2592000',
+      'Content-Security-Policy': "script-src 'none'",
+      'Content-Disposition': 'attachment',
+      'X-Content-Type-Options': 'nosniff'
+    }
+  })
+}
+
+async function faviconPlaceholder(c: Ctx) {
+  const requestedName = c.req.param('name') ?? c.req.query('placeholder')
+  const isSite = requestedName === 'site'
+  const isDark = c.req.query('ui-mode') === 'dark'
+  const filename = isSite
+    ? isDark
+      ? 'site_favicon_placeholder_dark.svg'
+      : 'site_favicon_placeholder.svg'
+    : isDark
+      ? 'link_favicon_dark.svg'
+      : 'link_favicon.svg'
+  const asset = await c.env.ASSETS.fetch(
+    new Request(new URL(`/images/favicon/${filename}`, c.req.url))
+  )
+  const headers = new Headers(asset.headers)
+  headers.set('Content-Type', 'image/svg+xml')
+  headers.set('Cache-Control', 'public, max-age=2592000')
+  return new Response(asset.body, { status: asset.status, headers })
+}
 
 async function collectEvent(c: Ctx) {
   const raw = await c.req.text()
