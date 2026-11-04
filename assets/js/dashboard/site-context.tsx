@@ -52,7 +52,7 @@ export const siteContextDefaultValue = {
   conversionsOptedOut: false,
   funnelsOptedOut: false,
   propsOptedOut: false,
-  revenueGoals: [] as { display_name: string; currency: 'USD' }[],
+  revenueGoals: [] as { display_name: string; currency: string }[],
   funnels: [] as { id: number; name: string; steps_count: number }[],
   /** date in YYYY-MM-DD, @example "2023-01-01" */
   statsBegin: '',

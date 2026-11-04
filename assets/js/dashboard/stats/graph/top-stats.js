@@ -102,6 +102,13 @@ export default function TopStats({
       return 'Does not include imported data'
     }
 
+    if (
+      ['total_revenue', 'average_revenue'].includes(metric) &&
+      warning.code === 'no_imported_revenue'
+    ) {
+      return 'Does not include imported data'
+    }
+
     if (metric === 'time_on_page') {
       return warning.message
     }

@@ -51,6 +51,7 @@ function TopBarStickyWrapper({ children }: { children: ReactNode }) {
 function TopBarInner({ showCurrentVisitors }: TopBarProps) {
   const { expandedSegment } = useDashboardStateContext()
   const { renderedFilters } = useFilterEditorContext()
+  const site = useSiteContext()
 
   return (
     <div className="flex min-w-0 flex-nowrap items-center gap-x-1 overflow-x-auto md:overflow-visible w-full touch-pan-x md:touch-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-1 -my-1 md:py-0 md:my-0">
@@ -62,6 +63,14 @@ function TopBarInner({ showCurrentVisitors }: TopBarProps) {
         <FiltersBar />
       </div>
       <div className="flex gap-x-1 shrink-0 empty:hidden">
+        {!expandedSegment && (
+          <a
+            href={`/${encodeURIComponent(site.domain)}/journeys`}
+            className="inline-flex h-9 items-center rounded-md border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+          >
+            Journeys
+          </a>
+        )}
         {!expandedSegment && <DashboardPeriodPicker />}
         {!expandedSegment && <DashboardOptionsMenu />}
       </div>

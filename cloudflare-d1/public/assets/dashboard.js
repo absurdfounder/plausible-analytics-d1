@@ -46659,7 +46659,14 @@ function chooseMetrics2(site, dashboardState) {
       "time_on_page"
     ];
   } else {
-    return [
+    return site.revenueGoals.length > 0 ? [
+      "visitors",
+      ...revenueMetrics,
+      "visits",
+      "pageviews",
+      "bounce_rate",
+      "visit_duration"
+    ] : [
       "visitors",
       "visits",
       "pageviews",
@@ -46826,6 +46833,9 @@ function TopStats({
       return "Does not include imported data";
     }
     if (metric === "scroll_depth" && warning2.code === "no_imported_scroll_depth") {
+      return "Does not include imported data";
+    }
+    if (["total_revenue", "average_revenue"].includes(metric) && warning2.code === "no_imported_revenue") {
       return "Does not include imported data";
     }
     if (metric === "time_on_page") {
@@ -61094,7 +61104,15 @@ function TopBarStickyWrapper({ children: children2 }) {
 function TopBarInner({ showCurrentVisitors }) {
   const { expandedSegment } = useDashboardStateContext();
   const { renderedFilters } = useFilterEditorContext();
-  return /* @__PURE__ */ import_react138.default.createElement("div", { className: "flex min-w-0 flex-nowrap items-center gap-x-1 overflow-x-auto md:overflow-visible w-full touch-pan-x md:touch-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-1 -my-1 md:py-0 md:my-0" }, /* @__PURE__ */ import_react138.default.createElement("div", { className: "flex shrink-0 items-center sm:gap-x-1 md:gap-x-2.5 empty:hidden" }, !expandedSegment && /* @__PURE__ */ import_react138.default.createElement(SiteSwitcher, null), showCurrentVisitors && !renderedFilters.length && /* @__PURE__ */ import_react138.default.createElement(CurrentVisitors, null)), /* @__PURE__ */ import_react138.default.createElement("div", { className: "flex flex-1 md:min-w-0" }, /* @__PURE__ */ import_react138.default.createElement(FiltersBar, null)), /* @__PURE__ */ import_react138.default.createElement("div", { className: "flex gap-x-1 shrink-0 empty:hidden" }, !expandedSegment && /* @__PURE__ */ import_react138.default.createElement(DashboardPeriodPicker, null), !expandedSegment && /* @__PURE__ */ import_react138.default.createElement(DashboardOptionsMenu, null)));
+  const site = useSiteContext();
+  return /* @__PURE__ */ import_react138.default.createElement("div", { className: "flex min-w-0 flex-nowrap items-center gap-x-1 overflow-x-auto md:overflow-visible w-full touch-pan-x md:touch-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-1 -my-1 md:py-0 md:my-0" }, /* @__PURE__ */ import_react138.default.createElement("div", { className: "flex shrink-0 items-center sm:gap-x-1 md:gap-x-2.5 empty:hidden" }, !expandedSegment && /* @__PURE__ */ import_react138.default.createElement(SiteSwitcher, null), showCurrentVisitors && !renderedFilters.length && /* @__PURE__ */ import_react138.default.createElement(CurrentVisitors, null)), /* @__PURE__ */ import_react138.default.createElement("div", { className: "flex flex-1 md:min-w-0" }, /* @__PURE__ */ import_react138.default.createElement(FiltersBar, null)), /* @__PURE__ */ import_react138.default.createElement("div", { className: "flex gap-x-1 shrink-0 empty:hidden" }, !expandedSegment && /* @__PURE__ */ import_react138.default.createElement(
+    "a",
+    {
+      href: `/${encodeURIComponent(site.domain)}/journeys`,
+      className: "inline-flex h-9 items-center rounded-md border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+    },
+    "Journeys"
+  ), !expandedSegment && /* @__PURE__ */ import_react138.default.createElement(DashboardPeriodPicker, null), !expandedSegment && /* @__PURE__ */ import_react138.default.createElement(DashboardOptionsMenu, null)));
 }
 
 // js/dashboard/stats/behaviours/index.tsx

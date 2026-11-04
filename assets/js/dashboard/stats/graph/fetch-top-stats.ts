@@ -91,14 +91,23 @@ export function chooseMetrics(
       'time_on_page'
     ]
   } else {
-    return [
+    return site.revenueGoals.length > 0
+      ? [
+          'visitors',
+          ...revenueMetrics,
+          'visits',
+          'pageviews',
+          'bounce_rate',
+          'visit_duration'
+        ]
+      : [
       'visitors',
       'visits',
       'pageviews',
       'views_per_visit',
       'bounce_rate',
       'visit_duration'
-    ]
+        ]
   }
 }
 
