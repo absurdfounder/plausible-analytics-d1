@@ -177,30 +177,41 @@ async function listSites(c: Ctx) {
 
   // Keep these scans within the composite (site_id, ts) index. Imported history
   // lives in plausible_history and does not need to be scanned for live cards.
-  const siteList = siteIds.map(() => '?').join(', ')
-  const summaryPromise = c.env.DB.prepare(
-    `SELECT site_id,
-       COUNT(*) AS events,
-       MAX(ts) AS last_event_ts,
-       COUNT(DISTINCT CASE WHEN ts >= ? THEN visitor_id END) AS visitors_24h,
-       COUNT(DISTINCT CASE WHEN ts < ? THEN visitor_id END) AS previous_visitors_24h,
-       COUNT(DISTINCT CASE WHEN ts >= ? THEN visitor_id END) AS online
-     FROM pd_events
-     WHERE site_id IN (${siteList}) AND ts >= ?
-     GROUP BY site_id`,
-  ).bind(now - 86_400, now - 86_400, now - 300, ...siteIds, now - 172_800)
-    .all<{ site_id: string; events: number; last_event_ts: number | null; visitors_24h: number; previous_visitors_24h: number; online: number }>()
   const firstHour = Math.floor(now / 3600) - 23
-  const hourlyPromise = c.env.DB.prepare(
-    `SELECT site_id, CAST(ts / 3600 AS INTEGER) AS hour, COUNT(DISTINCT visitor_id) AS visitors
-       FROM pd_events
-      WHERE site_id IN (${siteList}) AND ts >= ?
-      GROUP BY site_id, CAST(ts / 3600 AS INTEGER)`,
-  ).bind(...siteIds, firstHour * 3600).all<{ site_id: string; hour: number; visitors: number }>()
-  const [summary, hourly] = await Promise.all([summaryPromise, hourlyPromise])
-  const summaryBySite = new Map(summary.results.map((row) => [row.site_id, row]))
+  const summaryRows: Array<{ site_id: string; events: number; last_event_ts: number | null; visitors_24h: number; previous_visitors_24h: number; online: number }> = []
+  const hourlyRows: Array<{ site_id: string; hour: number; visitors: number }> = []
+  // D1 caps each query at 100 bound parameters. Batch IDs below that limit,
+  // and keep only two D1 queries in flight per Worker invocation.
+  const batchSize = 45
+  for (let offset = 0; offset < siteIds.length; offset += batchSize) {
+    const batch = siteIds.slice(offset, offset + batchSize)
+    const placeholders = batch.map(() => '?').join(', ')
+    const [summary, hourly] = await Promise.all([
+      c.env.DB.prepare(
+        `SELECT site_id,
+           COUNT(*) AS events,
+           MAX(ts) AS last_event_ts,
+           COUNT(DISTINCT CASE WHEN ts >= ? THEN visitor_id END) AS visitors_24h,
+           COUNT(DISTINCT CASE WHEN ts < ? THEN visitor_id END) AS previous_visitors_24h,
+           COUNT(DISTINCT CASE WHEN ts >= ? THEN visitor_id END) AS online
+         FROM pd_events
+         WHERE site_id IN (${placeholders}) AND ts >= ?
+         GROUP BY site_id`,
+      ).bind(now - 86_400, now - 86_400, now - 300, ...batch, now - 172_800)
+        .all<{ site_id: string; events: number; last_event_ts: number | null; visitors_24h: number; previous_visitors_24h: number; online: number }>(),
+      c.env.DB.prepare(
+        `SELECT site_id, CAST(ts / 3600 AS INTEGER) AS hour, COUNT(DISTINCT visitor_id) AS visitors
+           FROM pd_events
+          WHERE site_id IN (${placeholders}) AND ts >= ?
+          GROUP BY site_id, CAST(ts / 3600 AS INTEGER)`,
+      ).bind(...batch, firstHour * 3600).all<{ site_id: string; hour: number; visitors: number }>(),
+    ])
+    summaryRows.push(...summary.results)
+    hourlyRows.push(...hourly.results)
+  }
+  const summaryBySite = new Map(summaryRows.map((row) => [row.site_id, row]))
   const sparklineBySite = new Map<string, number[]>()
-  for (const row of hourly.results) {
+  for (const row of hourlyRows) {
     const values = sparklineBySite.get(row.site_id) ?? Array.from({ length: 24 }, () => 0)
     const index = Number(row.hour) - firstHour
     if (index >= 0 && index < values.length) values[index] = Number(row.visitors ?? 0)
@@ -313,7 +324,68 @@ async function dashboardPage(c: Ctx, site: RegisteredSite) {
 }
 
 function sitesPage() {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Your websites — Plausible Analytics</title>${managementStyles()}</head><body><main class="wrap"><header class="top">${plausibleBrand()}<form action="/logout" method="post"><button class="button secondary" type="submit">Log out</button></form></header><section class="sites-title"><h1>Your websites</h1></section><div class="sites-toolbar"><label class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"></path></svg><input id="search" type="search" placeholder="Press / to search" aria-label="Search Sites"></label><div class="toolbar-actions"><label class="sort-box"><span class="sr-only">Sort websites</span><select id="sort"><option value="traffic-desc">Most visitors</option><option value="traffic-asc">Fewest visitors</option><option value="name-asc">Name A-Z</option><option value="name-desc">Name Z-A</option></select><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m19.5 8.25-7.5 7.5-7.5-7.5"></path></svg></label><details class="add-menu"><summary class="button primary add-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5v15m7.5-7.5h-15"></path></svg> Add <svg class="add-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m19.5 8.25-7.5 7.5-7.5-7.5"></path></svg></summary><div class="add-menu-items"><a href="/sites/new"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5v15m7.5-7.5h-15"></path></svg> Add website</a></div></details></div></div><p id="sites-note" class="sites-note">Loading your websites…</p><ul id="sites" class="site-grid" aria-live="polite"></ul></main><script src="/assets/sites.js" defer></script></body></html>`
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title>Your websites — Plausible Analytics</title>
+    ${managementStyles()}
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="top">
+        ${plausibleBrand()}
+        <form action="/logout" method="post"><button class="button secondary" type="submit">Log out</button></form>
+      </header>
+      <section class="sites-title"><h1>Your websites</h1></section>
+      <div class="sites-toolbar">
+        <label class="search-box">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"></path></svg>
+          <input id="search" type="search" placeholder="Press / to search" aria-label="Search Sites">
+        </label>
+        <div class="toolbar-actions">
+          <label class="sort-box">
+            <span class="sr-only">Sort websites</span>
+            <select id="sort">
+              <option value="traffic-desc">Most visitors</option>
+              <option value="traffic-asc">Fewest visitors</option>
+              <option value="name-asc">Name A-Z</option>
+              <option value="name-desc">Name Z-A</option>
+            </select>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m19.5 8.25-7.5 7.5-7.5-7.5"></path></svg>
+          </label>
+          <details class="add-menu">
+            <summary class="button primary add-button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5v15m7.5-7.5h-15"></path></svg>
+              Add
+              <svg class="add-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m19.5 8.25-7.5 7.5-7.5-7.5"></path></svg>
+            </summary>
+            <div class="add-menu-items">
+              <a href="/sites/new"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5v15m7.5-7.5h-15"></path></svg> Add website</a>
+            </div>
+          </details>
+        </div>
+      </div>
+      <p id="sites-note" class="sites-note">Loading your websites…</p>
+      <ul id="sites" class="site-grid" data-state="loading" aria-live="polite"></ul>
+    </main>
+    <noscript><p class="sites-note">Enable JavaScript in your browser to load your websites.</p></noscript>
+    <script>
+      window.setTimeout(() => {
+        const list = document.getElementById('sites')
+        if (!list || list.dataset.state !== 'loading') return
+        const note = document.getElementById('sites-note')
+        if (note) note.textContent = 'The sites page did not finish starting. Reload to try again.'
+        list.dataset.state = 'error'
+        list.innerHTML = '<li class="empty"><h2>Sites could not load</h2><p>The page did not finish starting. Your sites are safe.</p><button id="retry-sites-page" class="button secondary" type="button">Reload page</button></li>'
+        document.getElementById('retry-sites-page')?.addEventListener('click', () => window.location.reload())
+      }, 30000)
+    </script>
+    <script src="/assets/sites.js" defer></script>
+  </body>
+</html>`
 }
 
 function plausibleBrand() {

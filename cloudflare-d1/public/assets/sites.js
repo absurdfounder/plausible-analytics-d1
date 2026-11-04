@@ -79,21 +79,40 @@ document.addEventListener('keydown', event => {
   }
 })
 
-const loadSites = async () => {
+const loadSites = async (attempt = 0) => {
   note.textContent = 'Loading your websites…'
+  root.dataset.state = 'loading'
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 12000)
   try {
     const response = await fetch('/api/sites', { signal: controller.signal })
+    if (response.status === 401) {
+      window.location.replace('/login')
+      return
+    }
     if (!response.ok) throw new Error('Could not load your websites. Refresh and try again.')
     const result = await response.json()
-    sites = result.data || []
+    if (!Array.isArray(result.data)) throw new Error('The sites response was invalid.')
+    sites = result.data
     note.textContent = 'Live visitors are shown for the last 24 hours. Imported Plausible history appears in each site’s dashboard.'
     render()
+    root.dataset.state = 'loaded'
   } catch (error) {
-    note.textContent = error.name === 'AbortError' ? 'The request timed out. Your sites are safe; try loading again.' : 'Could not load your websites. Refresh and try again.'
+    if (attempt === 0) {
+      note.textContent = error instanceof Error && error.name === 'AbortError'
+        ? 'The request timed out. Retrying…'
+        : 'Could not reach the server. Retrying…'
+      window.setTimeout(() => void loadSites(1), 900)
+      return
+    }
+    root.dataset.state = 'error'
+    note.textContent = error instanceof Error && error.name === 'AbortError'
+      ? 'The request timed out twice. Your sites are safe; try again.'
+      : 'Could not load your websites. Your sites are safe; try again.'
     root.innerHTML = '<li class="empty"><h2>Sites could not load</h2><p>Check your connection, then retry.</p><button id="retry-sites" class="button secondary">Retry</button></li>'
-    document.getElementById('retry-sites').addEventListener('click', loadSites)
+    document.getElementById('retry-sites').addEventListener('click', () => {
+      void loadSites()
+    })
   } finally {
     clearTimeout(timer)
   }
