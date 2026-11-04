@@ -33,7 +33,7 @@ The upstream dashboard displays a note when imported data is included and when a
 4. Add the tracker to your website:
 
    ```html
-   <script defer data-domain="viralhooks.org" data-api="https://YOUR-WORKER.workers.dev/api/event" src="https://YOUR-WORKER.workers.dev/js/script.js"></script>
+   <script defer data-domain="viralhooks.org" src="https://YOUR-WORKER.workers.dev/js/script.outbound-links.js"></script>
    ```
 
    Replace the domain and Worker host for your deployment. Collection begins after this script is installed.

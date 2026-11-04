@@ -12,3 +12,12 @@ await mkdir(dirname(output), { recursive: true })
 const code = await compileFile(variant, { returnCode: true })
 await import('node:fs/promises').then(({ writeFile }) => writeFile(output, code))
 console.log(`Built official Plausible tracker at ${output}`)
+
+const outboundVariant = {
+  name: 'plausible.outbound-links.js',
+  globals: { COMPILE_OUTBOUND_LINKS: true, COMPILE_PLAUSIBLE_LEGACY_VARIANT: true },
+}
+const outboundOutput = resolve(here, '../public/js/script.outbound-links.js')
+const outboundCode = await compileFile(outboundVariant, { returnCode: true })
+await import('node:fs/promises').then(({ writeFile }) => writeFile(outboundOutput, outboundCode))
+console.log(`Built official Plausible outbound-links tracker at ${outboundOutput}`)
