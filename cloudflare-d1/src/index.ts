@@ -26,10 +26,9 @@ type EventStats = {
 }
 type ArchivePayload = Record<string, unknown>
 type ApiFilter = [string, string, Array<string | number>, { case_sensitive?: boolean }?]
+type RegisteredSite = { id: string; domain: string; created_at: string }
 
 const app: App = new Hono()
-const SITE_ID = '052l044a524h1w0y'
-const DOMAIN = 'viralhooks.org'
 const TZ_OFFSET = 19_800
 const SNAPSHOT_SECONDS = 1_793_752_334
 const DAY_SECONDS = 86_400
@@ -79,12 +78,24 @@ app.post('/login', async (c) => {
   }
   const token = await makeSession(c.env.SESSION_SECRET)
   c.header('Set-Cookie', `${AUTH_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=1209600`)
-  return c.redirect(`/${DOMAIN}`)
+  return c.redirect('/sites')
 })
 app.post('/logout', (c) => {
   c.header('Set-Cookie', `${AUTH_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`)
   return c.redirect('/login')
 })
+
+app.use('/api/sites', async (c, next) => {
+  if (!(await isSignedIn(c.req.header('Cookie'), c.env.SESSION_SECRET))) return c.json({ error: 'unauthorized' }, 401)
+  await next()
+})
+app.use('/api/sites/*', async (c, next) => {
+  if (!(await isSignedIn(c.req.header('Cookie'), c.env.SESSION_SECRET))) return c.json({ error: 'unauthorized' }, 401)
+  await next()
+})
+app.get('/api/sites', listSites)
+app.get('/api/sites/', listSites)
+app.post('/api/sites', createSite)
 
 app.use('/api/stats/*', async (c, next) => {
   if (!(await isSignedIn(c.req.header('Cookie'), c.env.SESSION_SECRET))) return c.json({ error: 'unauthorized' }, 401)
@@ -101,15 +112,157 @@ app.all('/api/stats/*', (c) => c.json({ error: 'not found' }, 404))
 app.get('/favicon/sources/:domain', sourceFavicon)
 app.get('/favicon/placeholders/:name', faviconPlaceholder)
 
-app.get('/', (c) => c.redirect(`/${DOMAIN}`))
+app.get('/', (c) => c.redirect('/sites'))
+app.get('/sites', async (c) => {
+  if (!(await isSignedIn(c.req.header('Cookie'), c.env.SESSION_SECRET))) return c.html(loginPage())
+  return c.html(sitesPage())
+})
+app.get('/sites/', async (c) => {
+  if (!(await isSignedIn(c.req.header('Cookie'), c.env.SESSION_SECRET))) return c.html(loginPage())
+  return c.html(sitesPage())
+})
+app.get('/sites/new', async (c) => {
+  if (!(await isSignedIn(c.req.header('Cookie'), c.env.SESSION_SECRET))) return c.html(loginPage())
+  return c.html(newSitePage())
+})
+app.get('/:domain/settings/general', async (c) => {
+  if (!(await isSignedIn(c.req.header('Cookie'), c.env.SESSION_SECRET))) return c.html(loginPage())
+  const site = await getSiteByDomain(c.env.DB, c.req.param('domain'))
+  if (!site) return c.text('Site not found', 404)
+  return c.html(siteSettingsPage(site, new URL(c.req.url).origin))
+})
 app.all('*', async (c) => {
   const path = c.req.path
   if (path === '/js/script.js') return c.env.ASSETS.fetch(new Request(new URL('/js/script.js', c.req.url)))
   if (path.startsWith('/assets/') || path.startsWith('/js/') || path.startsWith('/images/')) return c.env.ASSETS.fetch(c.req.raw)
-  if (path !== `/${DOMAIN}` && !path.startsWith(`/${DOMAIN}/`)) return c.text('Not found', 404)
+  const domain = decodeURIComponent(path.slice(1).split('/')[0] ?? '')
+  const site = domain ? await getSiteByDomain(c.env.DB, domain) : null
+  if (!site) return c.text('Not found', 404)
   if (!(await isSignedIn(c.req.header('Cookie'), c.env.SESSION_SECRET))) return c.html(loginPage())
-  return c.env.ASSETS.fetch(new Request(new URL('/index.html', c.req.url)))
+  return dashboardPage(c, site)
 })
+
+async function getSiteByDomain(db: D1Database, domain: string | undefined) {
+  if (!domain) return null
+  return db.prepare('SELECT id, domain, created_at FROM pd_sites WHERE domain = ? COLLATE NOCASE')
+    .bind(domain).first<RegisteredSite>()
+}
+
+async function listSites(c: Ctx) {
+  const now = Math.floor(Date.now() / 1000)
+  const rows = await c.env.DB.prepare(
+    `SELECT s.id, s.domain, s.created_at,
+      COUNT(e.event_id) AS events,
+      MAX(e.ts) AS last_event_ts,
+      COUNT(DISTINCT CASE WHEN e.ts >= ? THEN e.visitor_id END) AS visitors_24h,
+      COUNT(DISTINCT CASE WHEN e.ts >= ? THEN e.visitor_id END) AS online,
+      EXISTS (SELECT 1 FROM plausible_history h WHERE h.site_id = s.id) AS has_imports
+     FROM pd_sites s LEFT JOIN pd_events e ON e.site_id = s.id
+     GROUP BY s.id, s.domain, s.created_at ORDER BY lower(s.domain)`,
+  ).bind(now - 86_400, now - 300).all<RegisteredSite & {
+    events: number; last_event_ts: number | null; visitors_24h: number; online: number; has_imports: number
+  }>()
+  return c.json({ data: rows.results.map((site) => ({
+    domain: site.domain,
+    id: site.id,
+    created_at: site.created_at,
+    needs_verification: false,
+    events: Number(site.events ?? 0),
+    last_event_ts: site.last_event_ts,
+    visitors_24h: Number(site.visitors_24h ?? 0),
+    online: Number(site.online ?? 0),
+    has_imports: Boolean(site.has_imports),
+  })) })
+}
+
+async function createSite(c: Ctx) {
+  const body = await c.req.json<{ domain?: unknown }>().catch(() => null)
+  if (typeof body?.domain !== 'string') return c.json({ error: 'Enter a valid website domain.' }, 400)
+  const domain = normalizeSiteDomain(body.domain)
+  if (!domain) return c.json({ error: 'Enter a domain such as example.com, without a path.' }, 400)
+  if (await getSiteByDomain(c.env.DB, domain)) return c.json({ error: 'This site is already in your list.' }, 409)
+
+  const id = crypto.randomUUID().replaceAll('-', '')
+  const created = await c.env.DB.prepare(
+    'INSERT OR IGNORE INTO pd_sites (id, domain, created_at) VALUES (?, ?, datetime(\'now\'))',
+  ).bind(id, domain).run()
+  if (Number(created.meta.changes ?? 0) !== 1) return c.json({ error: 'This site is already in your list.' }, 409)
+
+  const origin = new URL(c.req.url).origin
+  const tracker = `<script defer data-domain="${domain}" src="${origin}/js/script.outbound-links.js"></script>`
+  return c.json({ data: { id, domain, tracker } }, 201)
+}
+
+function normalizeSiteDomain(value: string) {
+  const input = value.trim()
+  if (!input || /[\s/@?#]/.test(input.replace(/^https?:\/\//i, ''))) return null
+  let domain: string
+  try {
+    const url = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`)
+    if (url.pathname !== '/' || url.search || url.hash || url.port || url.username || url.password || (url.protocol !== 'http:' && url.protocol !== 'https:')) return null
+    domain = url.hostname.toLowerCase().replace(/\.$/, '')
+  } catch {
+    return null
+  }
+  if (domain.length > 253 || !domain.includes('.')) return null
+  const labels = domain.split('.')
+  if (labels.some((label) => !label || label.length > 63 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))) return null
+  return domain
+}
+
+function hostBelongsToSite(hostname: string, domain: string) {
+  const host = hostname.toLowerCase().replace(/\.$/, '')
+  return host === domain || host.endsWith(`.${domain}`)
+}
+
+async function dashboardPage(c: Ctx, site: RegisteredSite) {
+  const asset = await c.env.ASSETS.fetch(new Request(new URL('/index.html', c.req.url)))
+  const [archive, native] = await Promise.all([
+    c.env.DB.prepare("SELECT MIN(date) AS first_date FROM plausible_history WHERE site_id = ?")
+      .bind(site.id).first<{ first_date: string | null }>(),
+    c.env.DB.prepare('SELECT MIN(ts) AS first_ts FROM pd_events WHERE site_id = ?')
+      .bind(site.id).first<{ first_ts: number | null }>(),
+  ])
+  const nativeStart = native?.first_ts ? dateForTimestamp(native.first_ts) : today()
+  const statsStart = archive?.first_date ?? nativeStart
+  const html = (await asset.text())
+    .replace('<title>Viralhooks — Plausible Analytics</title>', `<title>${htmlEscape(site.domain)} — Plausible Analytics</title>`)
+    .replace('data-domain="viralhooks.org"', `data-domain="${htmlEscape(site.domain)}"`)
+    .replace('data-logged-in="false"', 'data-logged-in="true"')
+    .replace('data-stats-begin="2024-12-26"', `data-stats-begin="${statsStart}"`)
+    .replace('data-native-stats-begin="2026-11-04"', `data-native-stats-begin="${nativeStart}"`)
+  const headers = new Headers(asset.headers)
+  headers.delete('Content-Length')
+  headers.set('Content-Type', 'text/html; charset=utf-8')
+  return new Response(html, { status: asset.status, headers })
+}
+
+function sitesPage() {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Your websites — Plausible Analytics</title>${managementStyles()}</head><body><main class="wrap"><header class="top"><a class="brand" href="/sites"><span class="mark">↗</span><span>Plausible</span></a><form action="/logout" method="post"><button class="button secondary" type="submit">Log out</button></form></header><section class="heading"><div><p class="eyebrow">SITE MANAGEMENT</p><h1>Your websites</h1><p class="sub">View every website connected to this dashboard and add a tracker for another domain.</p></div><a class="button primary" href="/sites/new">＋ Add website</a></section><div id="notice" role="status"></div><section id="sites" class="grid" aria-live="polite"><article class="empty loading-card"><div class="spinner"></div><p>Loading your websites…</p></article></section><footer>Analytics hosted on your Cloudflare Worker and D1 database.</footer></main><script>
+const root=document.getElementById('sites');const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const dateLabel=ts=>{if(!ts)return'No events yet';const d=new Date(ts*1000);return'Last event '+d.toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'})};fetch('/api/sites').then(r=>{if(!r.ok)throw new Error('Could not load your sites. Refresh and try again.');return r.json()}).then(({data})=>{if(!data?.length){root.innerHTML='<article class="empty"><div class="empty-icon">＋</div><h2>No websites yet</h2><p>Add your first domain to start collecting analytics.</p><a class="button primary" href="/sites/new">Add website</a></article>';return}root.innerHTML=data.map(s=>'<article class="site-card"><div class="site-head"><img class="favicon" src="/favicon/sources/'+encodeURIComponent(s.domain)+'?placeholder=site&v=20261104-sites" alt=""><div class="site-title"><h2>'+escapeHtml(s.domain)+'</h2><p>Added '+escapeHtml(new Date(s.created_at.replace(' ','T')+'Z').toLocaleDateString())+'</p></div><span class="live"><i></i>'+Number(s.online||0)+' online</span></div><div class="site-meta"><div><strong>'+Number(s.events||0).toLocaleString()+'</strong><span>new tracked events</span></div><div><strong>'+Number(s.visitors_24h||0).toLocaleString()+'</strong><span>live visitors · last 24 hours</span></div><div><strong>'+escapeHtml(dateLabel(s.last_event_ts))+'</strong><span>'+(s.has_imports?'Plausible history imported':'Live collection')+'</span></div></div><div class="site-actions"><a class="button primary" href="/'+encodeURIComponent(s.domain)+'">Open dashboard <span>→</span></a><a class="button secondary" href="/'+encodeURIComponent(s.domain)+'/settings/general">Tracking setup</a></div></article>').join('')}).catch(e=>{root.innerHTML='<article class="empty error">'+escapeHtml(e.message)+'</article>'});
+</script></body></html>`
+}
+
+function newSitePage() {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Add website — Plausible Analytics</title>${managementStyles()}</head><body><main class="narrow"><header class="top"><a class="brand" href="/sites"><span class="mark">↗</span><span>Plausible</span></a><a class="button secondary" href="/sites">All websites</a></header><section class="form-card"><p class="eyebrow">SITE MANAGEMENT</p><h1>Add a website</h1><p class="sub">Enter the domain you want to measure. You can add the tracking snippet after creating it.</p><form id="add-form"><label for="domain">Website domain</label><input id="domain" name="domain" autocomplete="url" placeholder="example.com" required><small>Use a domain only, such as viralhooks.org. Subdomains of this domain are included.</small><p id="error" class="form-error" role="alert"></p><button class="button primary full" type="submit">Add website</button></form><section id="success" hidden></section></section></main><script>
+const form=document.getElementById('add-form');form.addEventListener('submit',async e=>{e.preventDefault();const button=form.querySelector('button');const error=document.getElementById('error');error.textContent='';button.disabled=true;button.textContent='Adding website…';try{const response=await fetch('/api/sites',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain:document.getElementById('domain').value})});const result=await response.json();if(!response.ok)throw new Error(result.error||'Could not add this website.');form.hidden=true;const success=document.getElementById('success');success.hidden=false;success.innerHTML='<div class="success-icon">✓</div><h2>'+String(result.data.domain).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))+' was added</h2><p class="sub">Install this snippet in the <code>&lt;head&gt;</code> section of your website. Visits will begin appearing as soon as the script loads.</p><pre id="tracker"></pre><button id="copy" class="button secondary full">Copy tracking snippet</button><a class="button primary full" style="margin-top:10px" href="/'+encodeURIComponent(result.data.domain)+'">Open dashboard</a><a class="back-link" href="/sites">Back to all websites</a>';document.getElementById('tracker').textContent=result.data.tracker;document.getElementById('copy').onclick=async()=>{await navigator.clipboard.writeText(result.data.tracker);document.getElementById('copy').textContent='Copied'}}catch(err){error.textContent=err.message;button.disabled=false;button.textContent='Add website'}});
+</script></body></html>`
+}
+
+function siteSettingsPage(site: RegisteredSite, origin: string) {
+  const tracker = `<script defer data-domain="${site.domain}" src="${origin}/js/script.outbound-links.js"></script>`
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${htmlEscape(site.domain)} settings — Plausible Analytics</title>${managementStyles()}</head><body><main class="narrow"><header class="top"><a class="brand" href="/sites"><span class="mark">↗</span><span>Plausible</span></a><a class="button secondary" href="/sites">All websites</a></header><section class="form-card"><p class="eyebrow">SITE SETTINGS</p><h1>${htmlEscape(site.domain)}</h1><p class="sub">Install this site’s tracking snippet to collect visits in this dashboard.</p><label for="tracker">Tracking snippet</label><pre id="tracker">${htmlEscape(tracker)}</pre><button id="copy" class="button secondary full">Copy tracking snippet</button><a class="button primary full" style="margin-top:12px" href="/${encodeURIComponent(site.domain)}">Open dashboard</a><p class="settings-note">This D1 edition currently supports site listing, site creation, tracking, and analytics reports. Team access, billing, and several advanced Plausible settings are not implemented in this deployment.</p></section></main><script>document.getElementById('copy').onclick=async()=>{await navigator.clipboard.writeText(document.getElementById('tracker').textContent);document.getElementById('copy').textContent='Copied'}</script></body></html>`
+}
+
+function managementStyles() {
+  return `<style>
+  :root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#211f1d;background:#f7f6f3;font-synthesis:none}*{box-sizing:border-box}body{margin:0;min-height:100vh}.wrap{max-width:1180px;margin:0 auto;padding:34px 30px 26px}.narrow{max-width:700px;margin:0 auto;padding:34px 24px}.top{display:flex;align-items:center;justify-content:space-between;min-height:50px}.brand{display:flex;align-items:center;gap:11px;color:inherit;text-decoration:none;font-weight:700;font-size:20px}.mark{display:grid;place-items:center;width:36px;height:36px;border-radius:11px;color:#f18161;background:#211f1d;font-size:24px;line-height:1}.heading{display:flex;justify-content:space-between;align-items:end;gap:24px;margin:56px 0 28px}.eyebrow{font-size:11px;letter-spacing:.12em;color:#918b85;font-weight:700;margin:0 0 10px}.heading h1,.form-card h1{font-size:34px;letter-spacing:-.04em;margin:0 0 8px}.sub{color:#77716b;font-size:15px;line-height:1.6;margin:0;max-width:650px}.button{display:inline-flex;align-items:center;justify-content:center;gap:9px;border:1px solid #e4e1dc;border-radius:11px;min-height:43px;padding:0 16px;text-decoration:none;font:600 14px inherit;cursor:pointer;white-space:nowrap}.primary{background:#211f1d;color:white;border-color:#211f1d}.primary:hover{background:#393632}.secondary{background:#fff;color:#282623;box-shadow:0 1px 2px #211f1d12}.button:disabled{opacity:.6;cursor:wait}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px}.site-card,.empty,.form-card{background:white;border:1px solid #eae7e2;border-radius:17px;box-shadow:0 2px 7px #28231d0a}.site-card{padding:21px}.site-head{display:flex;align-items:center;gap:13px}.favicon{width:42px;height:42px;border-radius:11px;background:#eef8f6}.site-title{min-width:0;flex:1}.site-title h2{font-size:18px;margin:0 0 4px;overflow:hidden;text-overflow:ellipsis}.site-title p{font-size:12px;color:#938d87;margin:0}.live{display:flex;align-items:center;gap:7px;color:#358b60;font-size:12px;white-space:nowrap}.live i{height:8px;width:8px;background:#5dcf8b;border-radius:50%}.site-meta{display:grid;grid-template-columns:1fr 1fr;gap:17px 12px;border-top:1px solid #f0eeeb;border-bottom:1px solid #f0eeeb;padding:17px 0;margin:19px 0}.site-meta div{display:flex;flex-direction:column;gap:4px}.site-meta strong{font-size:15px;font-weight:650}.site-meta span{font-size:12px;color:#827b75}.site-actions{display:flex;gap:9px;flex-wrap:wrap}.site-actions .button{font-size:13px;min-height:39px}.empty{grid-column:1/-1;text-align:center;padding:54px 20px;color:#777}.empty h2{color:#252321;margin:12px 0 7px}.empty p{margin:0 0 20px}.empty-icon,.success-icon{display:grid;place-items:center;margin:0 auto;width:46px;height:46px;border-radius:14px;background:#f3f1ee;color:#45413b;font-size:24px}.loading-card{display:flex;align-items:center;justify-content:center;gap:12px}.loading-card p{margin:0}.spinner{height:18px;width:18px;border:2px solid #ddd;border-top-color:#444;border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}footer{text-align:center;color:#aaa39d;font-size:12px;margin-top:36px}.form-card{padding:30px;margin-top:48px}.form-card h1{font-size:30px}.form-card .sub{margin-bottom:26px}.form-card label{display:block;font-weight:650;font-size:13px;margin:16px 0 8px}input{width:100%;height:48px;border:1px solid #dcd8d2;border-radius:10px;padding:0 13px;font:inherit;background:#fff;color:#201e1b;outline:none}input:focus{border-color:#807a72;box-shadow:0 0 0 3px #8c867d1c}.form-card small{display:block;color:#8a837d;font-size:12px;margin-top:8px}.full{width:100%;margin-top:18px}.form-error{min-height:20px;color:#b44536;font-size:13px;margin:8px 0 0}.form-card pre{overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f5f2;border:1px solid #e8e5e0;border-radius:10px;padding:15px;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}.success-icon{background:#eaf7ef;color:#278153;font-weight:700}.back-link{display:block;text-align:center;color:#655f58;margin-top:20px;font-size:14px}.settings-note{margin:24px 0 0;padding-top:18px;border-top:1px solid #efede9;font-size:12px;line-height:1.6;color:#96908a}@media(max-width:640px){.wrap{padding:20px 15px}.narrow{padding:20px 15px}.heading{align-items:flex-start;flex-direction:column;margin:40px 0 20px}.heading h1{font-size:29px}.grid{grid-template-columns:1fr}.form-card{padding:23px 19px;margin-top:30px}.button{min-height:41px}}
+  </style>`
+}
+
+function htmlEscape(value: string) {
+  return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!)
+}
 
 async function sourceFavicon(c: Ctx) {
   const rawSource = c.req.param('domain')
@@ -197,9 +350,12 @@ async function collectEvent(c: Ctx) {
   } catch {
     return c.body(null, 400)
   }
-  if (payload.d !== DOMAIN || typeof payload.n !== 'string' || typeof payload.u !== 'string') return c.body(null, 202)
+  if (typeof payload.d !== 'string' || typeof payload.n !== 'string' || typeof payload.u !== 'string') return c.body(null, 202)
+  const site = await getSiteByDomain(c.env.DB, payload.d)
+  if (!site) return c.body(null, 202)
   const url = safeUrl(payload.u)
   if (!url || !['http:', 'https:'].includes(url.protocol)) return c.body(null, 202)
+  if (!hostBelongsToSite(url.hostname, site.domain)) return c.body(null, 202)
 
   const now = Math.floor(Date.now() / 1000)
   const localDate = dateForTimestamp(now)
@@ -221,7 +377,7 @@ async function collectEvent(c: Ctx) {
       os, os_version, device, screen, props
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
-    crypto.randomUUID(), SITE_ID, now, payload.n.slice(0, 120), url.pathname || '/', url.hostname,
+    crypto.randomUUID(), site.id, now, payload.n.slice(0, 120), url.pathname || '/', url.hostname,
     referrer?.href ?? null, referrer?.hostname.replace(/^www\./, '') ?? null,
     params.get('utm_source'), params.get('utm_medium'), params.get('utm_campaign'), params.get('utm_content'), params.get('utm_term'),
     visitorId, sessionId, cf?.country ?? null, cf?.region ?? null, cf?.city ?? null,
@@ -232,35 +388,39 @@ async function collectEvent(c: Ctx) {
 }
 
 async function currentVisitors(c: Ctx) {
-  if (c.req.param('domain') !== DOMAIN) return c.json({ error: 'unknown site' }, 404)
+  const site = await getSiteByDomain(c.env.DB, c.req.param('domain'))
+  if (!site) return c.json({ error: 'unknown site' }, 404)
   const row = await c.env.DB.prepare(
     'SELECT COUNT(DISTINCT visitor_id) AS visitors FROM pd_events WHERE site_id = ? AND ts >= ?',
-  ).bind(SITE_ID, Math.floor(Date.now() / 1000) - 300).first<{ visitors: number }>()
+  ).bind(site.id, Math.floor(Date.now() / 1000) - 300).first<{ visitors: number }>()
   return c.json(row?.visitors ?? 0)
 }
 
 async function suggestions(c: Ctx) {
-  if (c.req.param('domain') !== DOMAIN) return c.json({ error: 'unknown site' }, 404)
+  const site = await getSiteByDomain(c.env.DB, c.req.param('domain'))
+  if (!site) return c.json({ error: 'unknown site' }, 404)
   const key = c.req.param('key')
   const dimension = suggestionDimension(key ?? '')
   if (!dimension) return c.json([])
   const from = addDays(today(), -89)
   const query = (c.req.query('q') ?? '').toLocaleLowerCase()
-  const rows = await getBreakdown(c.env.DB, [dimension], from, today(), 100, true)
+  const rows = await getBreakdown(c.env.DB, site.id, site.domain, [dimension], from, today(), 100, true)
   return c.json(rows.map((row) => row.dimensions[0]).filter((value) => value && value.toLocaleLowerCase().includes(query)).slice(0, 20))
 }
 
 async function customPropSuggestions(c: Ctx) {
-  if (c.req.param('domain') !== DOMAIN) return c.json({ error: 'unknown site' }, 404)
+  const site = await getSiteByDomain(c.env.DB, c.req.param('domain'))
+  if (!site) return c.json({ error: 'unknown site' }, 404)
   const propKey = c.req.param('propKey')
   const query = (c.req.query('q') ?? '').toLocaleLowerCase()
   const from = addDays(today(), -89)
-  const rows = await getBreakdown(c.env.DB, [`event:props:${propKey}`], from, today(), 100, true)
+  const rows = await getBreakdown(c.env.DB, site.id, site.domain, [`event:props:${propKey}`], from, today(), 100, true)
   return c.json(rows.map((row) => row.dimensions[0]).filter((value) => value && value.toLocaleLowerCase().includes(query)).slice(0, 20))
 }
 
 async function statsQuery(c: Ctx) {
-  if (c.req.param('domain') !== DOMAIN) return c.json({ error: 'unknown site' }, 404)
+  const site = await getSiteByDomain(c.env.DB, c.req.param('domain'))
+  if (!site) return c.json({ error: 'unknown site' }, 404)
   const body = await c.req.json<StatsQueryBody>().catch(() => null)
   if (!body || !Array.isArray(body.metrics) || !Array.isArray(body.dimensions)) return c.json({ error: 'invalid query' }, 400)
   const range = resolveDateRange(body.date_range, body.relative_date)
@@ -278,9 +438,9 @@ async function statsQuery(c: Ctx) {
   if (dimensions.some((d) => d.startsWith('time'))) {
     const interval = dimensions[0].split(':')[1] ?? (range.days <= 1 ? 'hour' : range.days <= 120 ? 'day' : range.days <= 730 ? 'week' : 'month')
     const includeForGraph = importedAllowed && interval !== 'hour' && interval !== 'minute'
-    const series = await graphSeries(c.env.DB, range, interval, metrics[0] ?? 'visitors', includeForGraph, filters)
+    const series = await graphSeries(c.env.DB, site.id, range, interval, metrics[0] ?? 'visitors', includeForGraph, filters)
     const comparisonSeries = compareRange
-      ? await graphSeries(c.env.DB, compareRange, interval, metrics[0] ?? 'visitors', importedAllowed && interval !== 'hour' && interval !== 'minute', filters)
+      ? await graphSeries(c.env.DB, site.id, compareRange, interval, metrics[0] ?? 'visitors', importedAllowed && interval !== 'hour' && interval !== 'minute', filters)
       : []
     return c.json({
       query: { metrics, dimensions, date_range: [range.from, range.to], comparison_date_range: compareRange ? [compareRange.from, compareRange.to] : null },
@@ -303,8 +463,8 @@ async function statsQuery(c: Ctx) {
   }
 
   if (dimensions.length === 0) {
-    const current = await getTotals(c.env.DB, range, importedAllowed, filters)
-    const comparison = compareRange ? await getTotals(c.env.DB, compareRange, importedAllowed, filters) : null
+    const current = await getTotals(c.env.DB, site.id, range, importedAllowed, filters)
+    const comparison = compareRange ? await getTotals(c.env.DB, site.id, compareRange, importedAllowed, filters) : null
     return c.json({
       query: { metrics, dimensions, date_range: [range.from, range.to], comparison_date_range: compareRange ? [compareRange.from, compareRange.to] : null },
       meta: { imports_included: importedAllowed, imports_skip_reason: getImportSkipReason(body.include?.imports, realtime, filters, '', importedAllowed) },
@@ -314,8 +474,8 @@ async function statsQuery(c: Ctx) {
   }
 
   const limit = Math.min(1000, body.pagination?.limit ?? 100)
-  const rows = await getBreakdown(c.env.DB, dimensions, range.from, range.to, limit, importedBreakdownAllowed, filters, body.pagination?.offset ?? 0)
-  const comparedRows = compareRange ? await getBreakdown(c.env.DB, dimensions, compareRange.from, compareRange.to, limit, importedBreakdownAllowed, filters) : []
+  const rows = await getBreakdown(c.env.DB, site.id, site.domain, dimensions, range.from, range.to, limit, importedBreakdownAllowed, filters, body.pagination?.offset ?? 0)
+  const comparedRows = compareRange ? await getBreakdown(c.env.DB, site.id, site.domain, dimensions, compareRange.from, compareRange.to, limit, importedBreakdownAllowed, filters) : []
   const comparisonByDimensions = new Map(comparedRows.map((row) => [JSON.stringify(row.dimensions), row]))
   const total = rows.reduce((sum, row) => sum + row.visitors, 0)
   return c.json({
@@ -422,11 +582,11 @@ function metricValue(metric: string, value: unknown): number | null {
   return Math.round(n)
 }
 
-async function graphSeries(db: D1Database, range: DateRange, interval: string, metric: string, withImported: boolean, filters: ApiFilter[] = []) {
+async function graphSeries(db: D1Database, siteId: string, range: DateRange, interval: string, metric: string, withImported: boolean, filters: ApiFilter[] = []) {
   const dates: string[] = []
   for (let date = range.from; date <= range.to; date = addDays(date, 1)) dates.push(date)
-  const importRows = withImported && interval !== 'hour' ? await getArchiveTotals(db, range.from, range.to) : new Map<string, EventStats>()
-  const liveRows = await getLiveDailyTotals(db, range.from, range.to, filters)
+  const importRows = withImported && interval !== 'hour' ? await getArchiveTotals(db, siteId, range.from, range.to) : new Map<string, EventStats>()
+  const liveRows = await getLiveDailyTotals(db, siteId, range.from, range.to, filters)
   const grouped = new Map<string, EventStats>()
   for (const date of dates) {
     const total = addStats(importRows.get(date), liveRows.get(date))
@@ -444,7 +604,7 @@ async function graphSeries(db: D1Database, range: DateRange, interval: string, m
        COUNT(DISTINCT session_id) AS visits, SUM(CASE WHEN name = 'pageview' THEN 1 ELSE 0 END) AS pageviews,
        COUNT(*) AS events, 0 AS bounces, 0 AS visit_duration
        FROM pd_events WHERE site_id = ? AND ts >= ?${filter.sql} GROUP BY bucket ORDER BY bucket`,
-    ).bind(TZ_OFFSET, bucketSeconds, SITE_ID, startTs, ...filter.values).all<EventStats & { bucket: number }>()
+    ).bind(TZ_OFFSET, bucketSeconds, siteId, startTs, ...filter.values).all<EventStats & { bucket: number }>()
     const perHour = new Map<string, EventStats>()
     for (const row of rows.results) {
       const label = new Date(row.bucket * bucketSeconds * 1000).toISOString().slice(0, 16).replace('T', ' ')
@@ -457,14 +617,14 @@ async function graphSeries(db: D1Database, range: DateRange, interval: string, m
   return [...grouped].map(([label, stats]) => ({ label, value: metricFromStats(metric, stats) }))
 }
 
-async function getArchiveTotals(db: D1Database, from: string, to: string) {
+async function getArchiveTotals(db: D1Database, siteId: string, from: string, to: string) {
   const result = await db.prepare(
     `SELECT date, payload FROM plausible_history WHERE site_id = ? AND dataset = 'visitors' AND date >= ? AND date <= ? ORDER BY date`,
-  ).bind(SITE_ID, from, to).all<{ date: string; payload: string }>()
+  ).bind(siteId, from, to).all<{ date: string; payload: string }>()
   return new Map(result.results.map((row) => [row.date, payloadToStats(row.date, JSON.parse(row.payload))]))
 }
 
-async function getLiveDailyTotals(db: D1Database, from: string, to: string, filters: ApiFilter[] = []) {
+async function getLiveDailyTotals(db: D1Database, siteId: string, from: string, to: string, filters: ApiFilter[] = []) {
   const fromTs = Math.max(dateEpoch(from), SNAPSHOT_SECONDS)
   const toTs = dateEpoch(addDays(to, 1))
   const filter = liveFilterSql(filters)
@@ -480,13 +640,13 @@ async function getLiveDailyTotals(db: D1Database, from: string, to: string, filt
        SUM(CASE WHEN pageviews <= 1 THEN 1 ELSE 0 END) AS bounces,
        SUM(last_ts - first_ts) AS visit_duration
      FROM per_session GROUP BY date`,
-  ).bind(TZ_OFFSET, SITE_ID, fromTs, toTs, ...filter.values).all<EventStats>()
+  ).bind(TZ_OFFSET, siteId, fromTs, toTs, ...filter.values).all<EventStats>()
   return new Map(result.results.map((row) => [row.date, normalizeStats(row)]))
 }
 
-async function getTotals(db: D1Database, range: DateRange, withImported: boolean, filters: ApiFilter[]) {
-  const archived = withImported ? await getArchiveTotals(db, range.from, range.to) : new Map<string, EventStats>()
-  const live = await getLiveDailyTotals(db, range.from, range.to, filters)
+async function getTotals(db: D1Database, siteId: string, range: DateRange, withImported: boolean, filters: ApiFilter[]) {
+  const archived = withImported ? await getArchiveTotals(db, siteId, range.from, range.to) : new Map<string, EventStats>()
+  const live = await getLiveDailyTotals(db, siteId, range.from, range.to, filters)
   let total = zeroStats()
   for (const row of [...archived.values(), ...live.values()]) total = addStats(total, row)
   return total
@@ -525,7 +685,7 @@ function timeBucket(date: string, interval: string) {
   return date
 }
 
-async function getBreakdown(db: D1Database, dimensions: string[], from: string, to: string, limit: number, withImported: boolean, filters: ApiFilter[] = [], offset = 0): Promise<Breakdown[]> {
+async function getBreakdown(db: D1Database, siteId: string, domain: string, dimensions: string[], from: string, to: string, limit: number, withImported: boolean, filters: ApiFilter[] = [], offset = 0): Promise<Breakdown[]> {
   const values = new Map<string, Breakdown>()
   const archive = dimensions.map(archiveDimensionConfig)
   const archiveDataset = archive[0]?.dataset
@@ -534,7 +694,7 @@ async function getBreakdown(db: D1Database, dimensions: string[], from: string, 
   if (withImported && dimensions.length === 1 && dimensions[0] === 'visit:channel') {
     const rows = await db.prepare(
       `SELECT payload FROM plausible_history WHERE site_id = ? AND dataset = 'sources' AND date >= ? AND date <= ?`,
-    ).bind(SITE_ID, from, to).all<{ payload: string }>()
+    ).bind(siteId, from, to).all<{ payload: string }>()
     for (const item of rows.results) {
       const payload = JSON.parse(item.payload) as ArchivePayload
       const channel = String(payload.channel || classifyChannel(payload))
@@ -560,10 +720,10 @@ async function getBreakdown(db: D1Database, dimensions: string[], from: string, 
        COALESCE(SUM(CAST(json_extract(payload, '$.total_scroll_depth') AS REAL)) / NULLIF(SUM(CAST(json_extract(payload, '$.total_scroll_depth_visits') AS REAL)), 0), 0) AS scroll_depth
        FROM plausible_history WHERE site_id = ? AND dataset = ? AND date >= ? AND date <= ?${extraWhere}
        GROUP BY ${groups.join(', ')} ORDER BY visitors DESC LIMIT 1000`
-    const binds = [SITE_ID, archiveDataset, from, to, ...allArchiveWhere.flatMap((where) => where.values)]
+    const binds = [siteId, archiveDataset, from, to, ...allArchiveWhere.flatMap((where) => where.values)]
     const rows = await db.prepare(sql).bind(...binds).all<Record<string, unknown> & Partial<Breakdown>>()
     for (const row of rows.results) {
-      const rowDimensions = dimensions.map((dimension, index) => normalizeDimension(dimension, row[`d${index}`]))
+      const rowDimensions = dimensions.map((dimension, index) => normalizeDimension(dimension, row[`d${index}`], domain))
       if (rowDimensions.some((value) => !value)) continue
       const key = JSON.stringify(rowDimensions)
       values.set(key, { ...zeroBreakdown(rowDimensions), ...normalizeStats(row), time_on_page: numeric(row.time_on_page), scroll_depth: numeric(row.scroll_depth), dimensions: rowDimensions })
@@ -581,7 +741,7 @@ async function getBreakdown(db: D1Database, dimensions: string[], from: string, 
        COUNT(*) AS events, 0 AS bounces, 0 AS visit_duration
        FROM pd_events WHERE site_id = ? AND ts >= ? AND ts < ? AND name = 'pageview'${filter.sql}
        GROUP BY utm_source, referrer_domain, utm_medium, utm_campaign ORDER BY visitors DESC LIMIT 1000`,
-    ).bind(SITE_ID, liveFrom, liveTo, ...filter.values).all<Partial<Breakdown> & { utm_source: string | null; referrer_domain: string | null; utm_medium: string | null; utm_campaign: string | null }>()
+    ).bind(siteId, liveFrom, liveTo, ...filter.values).all<Partial<Breakdown> & { utm_source: string | null; referrer_domain: string | null; utm_medium: string | null; utm_campaign: string | null }>()
     for (const row of result.results) {
       const channel = classifyChannel({ source: row.utm_source || row.referrer_domain || '', utm_source: row.utm_source, utm_medium: row.utm_medium, utm_campaign: row.utm_campaign })
       addBreakdownStats(values, [channel], normalizeStats(row))
@@ -596,9 +756,9 @@ async function getBreakdown(db: D1Database, dimensions: string[], from: string, 
        COUNT(*) AS events, 0 AS bounces, 0 AS visit_duration
        FROM pd_events WHERE site_id = ? AND ts >= ? AND ts < ?${whereClauses.map((where) => ` AND ${where}`).join('')}${filter.sql}
        GROUP BY ${liveConfigs.map((config) => config?.expr).join(', ')} ORDER BY visitors DESC LIMIT 1000`,
-    ).bind(SITE_ID, liveFrom, liveTo, ...filter.values).all<Record<string, unknown> & Partial<Breakdown>>()
+    ).bind(siteId, liveFrom, liveTo, ...filter.values).all<Record<string, unknown> & Partial<Breakdown>>()
     for (const row of result.results) {
-      const rowDimensions = dimensions.map((dimension, index) => normalizeDimension(dimension, row[`d${index}`]))
+      const rowDimensions = dimensions.map((dimension, index) => normalizeDimension(dimension, row[`d${index}`], domain))
       if (rowDimensions.some((value) => !value)) continue
       const key = JSON.stringify(rowDimensions)
       const previous = values.get(key) ?? zeroBreakdown(rowDimensions)
@@ -832,10 +992,10 @@ function liveFilterColumn(dim: string) {
   return map[dim] ?? null
 }
 
-function normalizeDimension(key: string, raw: unknown): string {
+function normalizeDimension(key: string, raw: unknown, domain: string): string {
   const value = String(raw ?? '').trim()
   if (!value || value === '0' || value === 'null') {
-    return key.endsWith('_hostname') ? DOMAIN : ''
+    return key.endsWith('_hostname') ? domain : ''
   }
   if (key === 'visit:country_name') {
     try { return new Intl.DisplayNames(['en'], { type: 'region' }).of(value) ?? value } catch { return value }

@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS pd_sites (
+  id TEXT PRIMARY KEY,
+  domain TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT OR IGNORE INTO pd_sites (id, domain, created_at)
+VALUES ('052l044a524h1w0y', 'viralhooks.org', CURRENT_TIMESTAMP);

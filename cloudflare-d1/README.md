@@ -6,7 +6,7 @@ This is a custom D1 backend for Plausible's dashboard and event API, not the ful
 
 ## Historical import and chart resolution
 
-The D1 binding in `wrangler.jsonc` points to the database used for the Viralhooks deployment. Existing Plausible CSV import records are read from `plausible_history`; new tracker events are stored in `pd_events`. Imported records remain daily aggregates because the Plausible export contains no event timestamps, so hourly history cannot be reconstructed. New events include timestamps and can be reported at finer intervals.
+The D1 binding in `wrangler.jsonc` points to the database used for the Viralhooks deployment. The dashboard has a site registry in `pd_sites`; existing Plausible CSV import records are read from `plausible_history`, and new tracker events are stored in `pd_events`, keyed by the registered site's ID. Imported records remain daily aggregates because the Plausible export contains no event timestamps, so hourly history cannot be reconstructed. New events include timestamps and can be reported at finer intervals.
 
 The upstream dashboard displays a note when imported data is included and when a requested interval cannot be derived from the daily export. The source classification and GeoNames lookup files in `data/` are used to render acquisition channels and location names. GeoNames data is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and is derived from GeoNames' `cities15000` and `admin1CodesASCII` files.
 
@@ -19,7 +19,7 @@ The upstream dashboard displays a note when imported data is included and when a
    cd ../cloudflare-d1 && npm ci
    ```
 
-2. Create a D1 database in your Cloudflare account. Update `database_name` and `database_id` in `wrangler.jsonc`; adapt the site ID/domain constants in `src/index.ts` and the dashboard bootstrap in `public/index.html` for your site.
+2. Create a D1 database in your Cloudflare account and update `database_name` and `database_id` in `wrangler.jsonc`.
 3. Set dashboard credentials as Worker secrets, then apply the migration and deploy:
 
    ```sh
@@ -29,7 +29,7 @@ The upstream dashboard displays a note when imported data is included and when a
    npm run deploy
    ```
 
-   Use a long random value for `SESSION_SECRET`. The database migration creates the live-event tables and the source-category lookup; it does not import a Plausible CSV archive.
+   Use a long random value for `SESSION_SECRET`. The migrations create the live-event tables, source-category lookup, and site registry. The existing Viralhooks deployment is seeded into that registry; additional sites can be added from `/sites`. The migration does not import a Plausible CSV archive.
 4. Add the tracker to your website:
 
    ```html
