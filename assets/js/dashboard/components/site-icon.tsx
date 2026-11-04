@@ -20,11 +20,11 @@ export const Favicon = ({ domain }: { domain: string }) => {
     <img
       aria-hidden="true"
       alt=""
-      src={`/favicon/sources/${encodeURIComponent(domain)}?placeholder=site&ui-mode=${mode}`}
+      src={`/favicon/sources/${encodeURIComponent(domain)}?placeholder=site&ui-mode=${mode}&v=20261104-icons-2`}
       onError={(e) => {
         const target = e.target as HTMLImageElement
         target.onerror = null
-        target.src = `/favicon/placeholders/site?ui-mode=${mode}`
+        target.src = `/favicon/placeholders/site?ui-mode=${mode}&v=20261104-icons-2`
       }}
       referrerPolicy="no-referrer"
       className={siteIconClassName}

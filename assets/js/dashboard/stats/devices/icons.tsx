@@ -57,7 +57,7 @@ export const BrowserIcon = ({ dimensionValue }: { dimensionValue: string }) => {
   return (
     <img
       alt=""
-      src={`/images/icon/browser/${filename}`}
+      src={`/images/icon/browser/${filename}?v=20261104-icons-2`}
       className={ICON_CLASS}
     />
   )
@@ -98,7 +98,7 @@ export const OsIcon = ({ dimensionValue }: { dimensionValue: string }) => {
   }
 
   return (
-    <img alt="" src={`/images/icon/os/${filename}`} className={ICON_CLASS} />
+    <img alt="" src={`/images/icon/os/${filename}?v=20261104-icons-2`} className={ICON_CLASS} />
   )
 }
 

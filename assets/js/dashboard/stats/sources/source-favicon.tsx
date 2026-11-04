@@ -16,7 +16,7 @@ export const SourceFavicon = ({ name, className }: SourceFaviconProps) => {
   return (
     <img
       alt=""
-      src={`/favicon/sources/${encodeURIComponent(name)}?ui-mode=${mode}`}
+      src={`/favicon/sources/${encodeURIComponent(name)}?ui-mode=${mode}&v=20261104-icons-2`}
       referrerPolicy="no-referrer"
       className={classNames(
         className,

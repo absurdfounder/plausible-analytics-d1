@@ -269,6 +269,10 @@ async function statsQuery(c: Ctx) {
   const realtime = String(body.date_range).startsWith('realtime')
   const filters = Array.isArray(body.filters) ? body.filters as ApiFilter[] : []
   const importedAllowed = !!body.include?.imports && !realtime && filters.length === 0
+  const importedBreakdownAllowed = importedAllowed || (
+    !!body.include?.imports && !realtime &&
+    canImportFilteredLocationBreakdown(dimensions, filters)
+  )
   const compareRange = getComparisonRange(body.include?.compare, range)
 
   if (dimensions.some((d) => d.startsWith('time'))) {
@@ -310,13 +314,13 @@ async function statsQuery(c: Ctx) {
   }
 
   const limit = Math.min(1000, body.pagination?.limit ?? 100)
-  const rows = await getBreakdown(c.env.DB, dimensions, range.from, range.to, limit, importedAllowed, filters, body.pagination?.offset ?? 0)
-  const comparedRows = compareRange ? await getBreakdown(c.env.DB, dimensions, compareRange.from, compareRange.to, limit, importedAllowed, filters) : []
+  const rows = await getBreakdown(c.env.DB, dimensions, range.from, range.to, limit, importedBreakdownAllowed, filters, body.pagination?.offset ?? 0)
+  const comparedRows = compareRange ? await getBreakdown(c.env.DB, dimensions, compareRange.from, compareRange.to, limit, importedBreakdownAllowed, filters) : []
   const comparisonByDimensions = new Map(comparedRows.map((row) => [JSON.stringify(row.dimensions), row]))
   const total = rows.reduce((sum, row) => sum + row.visitors, 0)
   return c.json({
     query: { metrics, dimensions, date_range: [range.from, range.to], comparison_date_range: compareRange ? [compareRange.from, compareRange.to] : null },
-    meta: { imports_included: importedAllowed, imports_skip_reason: getImportSkipReason(body.include?.imports, realtime, filters, '', importedAllowed) },
+    meta: { imports_included: importedBreakdownAllowed, imports_skip_reason: getImportSkipReason(body.include?.imports, realtime, filters, '', importedBreakdownAllowed) },
     results: rows.map((row) => ({
       dimensions: row.dimensions,
       metrics: metrics.map((m) => metricValue(m, breakdownMetric(row, m, total))),
@@ -542,7 +546,9 @@ async function getBreakdown(db: D1Database, dimensions: string[], from: string, 
     const expressions = archive.map((item, index) => `${item?.expr} AS d${index}`)
     const groups = archive.map((item) => item?.expr)
     const archiveWhere = archive.flatMap((item) => item?.where ?? [])
-    const extraWhere = archiveWhere.map((where) => ` AND ${where.sql}`).join('')
+    const archiveFilterWhere = archiveFilterConditions(filters, archiveDataset)
+    const allArchiveWhere = [...archiveWhere, ...archiveFilterWhere]
+    const extraWhere = allArchiveWhere.map((where) => ` AND ${where.sql}`).join('')
     const sql = `SELECT ${expressions.join(', ')},
        COALESCE(SUM(CAST(json_extract(payload, '$.visitors') AS INTEGER)), 0) AS visitors,
        COALESCE(SUM(CAST(json_extract(payload, '$.visits') AS INTEGER)), 0) AS visits,
@@ -554,7 +560,7 @@ async function getBreakdown(db: D1Database, dimensions: string[], from: string, 
        COALESCE(SUM(CAST(json_extract(payload, '$.total_scroll_depth') AS REAL)) / NULLIF(SUM(CAST(json_extract(payload, '$.total_scroll_depth_visits') AS REAL)), 0), 0) AS scroll_depth
        FROM plausible_history WHERE site_id = ? AND dataset = ? AND date >= ? AND date <= ?${extraWhere}
        GROUP BY ${groups.join(', ')} ORDER BY visitors DESC LIMIT 1000`
-    const binds = [SITE_ID, archiveDataset, from, to, ...archiveWhere.flatMap((where) => where.values)]
+    const binds = [SITE_ID, archiveDataset, from, to, ...allArchiveWhere.flatMap((where) => where.values)]
     const rows = await db.prepare(sql).bind(...binds).all<Record<string, unknown> & Partial<Breakdown>>()
     for (const row of rows.results) {
       const rowDimensions = dimensions.map((dimension, index) => normalizeDimension(dimension, row[`d${index}`]))
@@ -698,6 +704,42 @@ function archiveDimensionConfig(dim: string): ArchiveDimension | null {
   if (!config) return null
   const [dataset, path] = config
   return { dataset, expr: `json_extract(payload, '${path}')` }
+}
+
+function canImportFilteredLocationBreakdown(dimensions: string[], filters: ApiFilter[]) {
+  if (!dimensions.length || !filters.length) return false
+  const allDimensions = [...dimensions, ...filters.map((filter) => filter[1])]
+  if (!allDimensions.every((dimension) => archiveDimensionConfig(dimension)?.dataset === 'locations')) return false
+  return filters.every((filter) =>
+    ['is', 'is_not', 'contains', 'contains_not'].includes(filter[0]) &&
+    Array.isArray(filter[2]) &&
+    filter[2].length > 0
+  )
+}
+
+function archiveFilterConditions(filters: ApiFilter[], dataset: string): SqlCondition[] {
+  return filters.flatMap(([operator, dimension, clauses, modifiers]) => {
+    const config = archiveDimensionConfig(dimension)
+    if (!config || config.dataset !== dataset || !clauses.length) return []
+    const caseSensitive = modifiers?.case_sensitive === true
+    const rawExpr = `CAST(${config.expr} AS TEXT)`
+    const expr = caseSensitive ? rawExpr : `LOWER(${rawExpr})`
+    const normalized = clauses.map((clause) => caseSensitive ? String(clause) : String(clause).toLowerCase())
+    if (operator === 'is' || operator === 'is_not') {
+      return [{
+        sql: `${expr} ${operator === 'is' ? 'IN' : 'NOT IN'} (${normalized.map(() => '?').join(',')})`,
+        values: normalized
+      }]
+    }
+    if (operator === 'contains' || operator === 'contains_not') {
+      const matcher = operator === 'contains' ? 'LIKE' : 'NOT LIKE'
+      return [{
+        sql: `(${normalized.map(() => `${expr} ${matcher} ?`).join(operator === 'contains' ? ' OR ' : ' AND ')})`,
+        values: normalized.map((value) => `%${value}%`)
+      }]
+    }
+    return []
+  })
 }
 
 function liveColumnConfig(dim: string): { expr: string; where?: string } | null {

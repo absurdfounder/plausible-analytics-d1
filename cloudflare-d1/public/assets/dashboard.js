@@ -40605,7 +40605,7 @@ var SourceFavicon = ({ name, className }) => {
     "img",
     {
       alt: "",
-      src: `/favicon/sources/${encodeURIComponent(name)}?ui-mode=${mode}`,
+      src: `/favicon/sources/${encodeURIComponent(name)}?ui-mode=${mode}&v=20261104-icons-2`,
       referrerPolicy: "no-referrer",
       className: (0, import_classnames5.default)(
         className,
@@ -57871,7 +57871,7 @@ var BrowserIcon = ({ dimensionValue }) => {
     "img",
     {
       alt: "",
-      src: `/images/icon/browser/${filename}`,
+      src: `/images/icon/browser/${filename}?v=20261104-icons-2`,
       className: ICON_CLASS
     }
   );
@@ -57900,7 +57900,7 @@ var OsIcon = ({ dimensionValue }) => {
   if (!filename) {
     return /* @__PURE__ */ import_react100.default.createElement(OsFallbackIconSvg, null);
   }
-  return /* @__PURE__ */ import_react100.default.createElement("img", { alt: "", src: `/images/icon/os/${filename}`, className: ICON_CLASS });
+  return /* @__PURE__ */ import_react100.default.createElement("img", { alt: "", src: `/images/icon/os/${filename}?v=20261104-icons-2`, className: ICON_CLASS });
 };
 var MobileScreenIconSvg = () => /* @__PURE__ */ import_react100.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react100.default.createElement("rect", { x: "5", y: "2", width: "14", height: "20", rx: "2", ry: "2" }), /* @__PURE__ */ import_react100.default.createElement("line", { strokeWidth: 2.5, x1: "12", y1: "18", x2: "12", y2: "18" }));
 var TabletScreenIconSvg = () => /* @__PURE__ */ import_react100.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react100.default.createElement(
@@ -58088,11 +58088,11 @@ var Favicon = ({ domain }) => {
     {
       "aria-hidden": "true",
       alt: "",
-      src: `/favicon/sources/${encodeURIComponent(domain)}?placeholder=site&ui-mode=${mode}`,
+      src: `/favicon/sources/${encodeURIComponent(domain)}?placeholder=site&ui-mode=${mode}&v=20261104-icons-2`,
       onError: (e3) => {
         const target = e3.target;
         target.onerror = null;
-        target.src = `/favicon/placeholders/site?ui-mode=${mode}`;
+        target.src = `/favicon/placeholders/site?ui-mode=${mode}&v=20261104-icons-2`;
       },
       referrerPolicy: "no-referrer",
       className: siteIconClassName
