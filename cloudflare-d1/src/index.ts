@@ -164,7 +164,7 @@ async function statsQuery(c: Ctx) {
   if (c.req.param('domain') !== DOMAIN) return c.json({ error: 'unknown site' }, 404)
   const body = await c.req.json<StatsQueryBody>().catch(() => null)
   if (!body || !Array.isArray(body.metrics) || !Array.isArray(body.dimensions)) return c.json({ error: 'invalid query' }, 400)
-  const range = resolveDateRange(body.date_range)
+  const range = resolveDateRange(body.date_range, body.relative_date)
   const dimensions = body.dimensions.map(String)
   const metrics = body.metrics.map(String)
   const realtime = String(body.date_range).startsWith('realtime')
@@ -191,7 +191,7 @@ async function statsQuery(c: Ctx) {
         comparison_time_label_result_indices: comparisonSeries.map((_, i) => i),
         comparison_partial_time_labels: [],
         empty_metrics: metrics.map(() => 0),
-        present_index: Math.max(0, series.length - 1),
+        present_index: range.to === today() ? Math.max(0, series.length - 1) : -1,
       },
       results: series.map((item) => ({ dimensions: [item.label], metrics: [metricValue(metrics[0] ?? 'visitors', item.value)] })),
       comparison_results: comparisonSeries.map((item) => ({ dimensions: [item.label], metrics: [metricValue(metrics[0] ?? 'visitors', item.value)], change: null })),
@@ -243,11 +243,15 @@ type StatsQueryBody = {
 type DateRange = { from: string; to: string; days: number }
 type Breakdown = { dimensions: string[]; visitors: number; visits: number; pageviews: number; events: number; bounces: number; visit_duration: number; bounce_rate: number; views_per_visit: number; time_on_page: number; scroll_depth: number; percentage: number }
 
-function resolveDateRange(input: StatsQueryBody['date_range']): DateRange {
+function resolveDateRange(input: StatsQueryBody['date_range'], relativeDate?: string | null): DateRange {
   if (Array.isArray(input)) {
     const from = normalizeDate(input[0])
     const to = normalizeDate(input[1])
     return { from, to, days: Math.max(1, Math.floor((dateEpoch(to) - dateEpoch(from)) / DAY_SECONDS) + 1) }
+  }
+  if (input === 'day' && relativeDate) {
+    const date = normalizeDate(relativeDate)
+    return { from: date, to: date, days: 1 }
   }
   const end = input === 'yesterday' ? addDays(today(), -1) : today()
   let days = 30
@@ -295,8 +299,10 @@ function getImportSkipReason(includeImports: boolean | undefined, realtime: bool
 
 function metricChange(metric: string, current: number, previous: number): number | null {
   if (previous === 0) return null
-  if (['bounce_rate', 'conversion_rate', 'group_conversion_rate', 'exit_rate'].includes(metric)) return current - previous
-  return (current - previous) / previous * 100
+  const change = ['bounce_rate', 'conversion_rate', 'group_conversion_rate', 'exit_rate'].includes(metric)
+    ? current - previous
+    : (current - previous) / previous * 100
+  return Math.round(change * 10) / 10
 }
 
 function normalizeDate(value: string) { return value.slice(0, 10) }

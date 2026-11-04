@@ -27,6 +27,8 @@ export function GraphIntervalProvider({
       domain: site.domain,
       siteTimezoneOffset: site.offset,
       siteStatsBegin: site.statsBegin,
+      nativeStatsBegin: site.nativeStatsBegin,
+      date: dashboardState.date,
       to: dashboardState.to,
       from: dashboardState.from,
       period: dashboardState.period,

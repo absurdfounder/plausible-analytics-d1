@@ -9,6 +9,8 @@ import { MainGraph, MainGraphContainer, useMainGraphWidth } from './main-graph'
 import { useGraphIntervalContext } from './graph-interval-context'
 import { useSetImportsIncluded } from './imports-included-context'
 import { useGetAnnotations } from '../../annotations/routeless-annotations-modals'
+import { useDashboardStateContext } from '../../dashboard-state-context'
+import { Notice } from '../../components/notice'
 
 // height of at least one row of top stats
 const DEFAULT_TOP_STATS_LOADING_HEIGHT_PX = 85
@@ -23,6 +25,7 @@ export default function VisitorGraph({
   const mainGraphContainer = useRef<HTMLDivElement>(null)
   const { width } = useMainGraphWidth(mainGraphContainer)
   const site = useSiteContext()
+  const { dashboardState } = useDashboardStateContext()
   const getAnnotationsQuery = useGetAnnotations()
 
   const { selectedInterval } = useGraphIntervalContext()
@@ -112,6 +115,22 @@ export default function VisitorGraph({
     !isMainGraphRealtimeSilentUpdate &&
     !showFullLoader
 
+  const importedHourlyNotice =
+    dashboardState.with_imported &&
+    ['hour', 'minute'].includes(selectedInterval) &&
+    mainGraphApiState.data?.meta.imports_skip_reason ===
+      'unsupported_interval'
+
+  const singleImportedDay =
+    dashboardState.with_imported &&
+    selectedInterval === 'day' &&
+    mainGraphApiState.data?.meta.imports_included &&
+    (dashboardState.period === 'day' ||
+      (dashboardState.period === 'custom' &&
+        dashboardState.from &&
+        dashboardState.to &&
+        dashboardState.from.isSame(dashboardState.to, 'day')))
+
   return (
     <div className="relative w-full bg-white rounded-md shadow-sm dark:bg-gray-900">
       <>
@@ -137,6 +156,20 @@ export default function VisitorGraph({
           )}
         </div>
         <div className="relative flex flex-col pl-3 pr-4">
+          {importedHourlyNotice && (
+            <Notice
+              className="mx-3 mt-3"
+              title="Imported history is daily only"
+              description="Plausible exports daily totals, not visit timestamps. Hourly values cannot be reconstructed; choose Days to see imported history."
+            />
+          )}
+          {singleImportedDay && (
+            <Notice
+              className="mx-3 mt-3"
+              title="One daily total is available for this date"
+              description="A single day gives one chart point. Select a date range to see the day-by-day trend."
+            />
+          )}
           <MainGraphContainer ref={mainGraphContainer}>
             {!!mainGraphApiState.data && !!width && (
               <>

@@ -14,7 +14,10 @@ export enum Interval {
   month = 'month'
 }
 
-export type GetIntervalProps = Omit<DashboardTimeSettings, 'date'>
+export type GetIntervalProps = Omit<DashboardTimeSettings, 'date'> & {
+  date?: DashboardTimeSettings['date']
+  nativeStatsBegin?: string
+}
 
 type DayjsRange = { from: Dayjs; to: Dayjs }
 
@@ -59,6 +62,8 @@ export function extractIntervalFromDimensions(dimensions: string[]): Interval {
 export function validIntervals({
   siteTimezoneOffset,
   siteStatsBegin,
+  date,
+  nativeStatsBegin,
   period,
   to,
   from,
@@ -69,6 +74,8 @@ export function validIntervals({
   const mainIntervals = validIntervalsForMainPeriod(
     siteTimezoneOffset,
     siteStatsBegin,
+    date,
+    nativeStatsBegin,
     period,
     from,
     to
@@ -94,6 +101,8 @@ export function validIntervals({
 export function getDefaultInterval({
   siteTimezoneOffset,
   siteStatsBegin,
+  date,
+  nativeStatsBegin,
   period,
   to,
   from,
@@ -104,6 +113,8 @@ export function getDefaultInterval({
   const defaultForMain = defaultForMainPeriod(
     siteTimezoneOffset,
     siteStatsBegin,
+    date,
+    nativeStatsBegin,
     period,
     from,
     to
@@ -136,6 +147,8 @@ function coarser(a: Interval[], b: Interval[]): Interval[] {
 function validIntervalsForMainPeriod(
   siteTimezoneOffset: DashboardTimeSettings['siteTimezoneOffset'],
   siteStatsBegin: DashboardTimeSettings['siteStatsBegin'],
+  date: DashboardTimeSettings['date'] | undefined,
+  nativeStatsBegin: string | undefined,
   period: DashboardPeriod,
   from: Dayjs | null,
   to: Dayjs | null
@@ -145,6 +158,14 @@ function validIntervalsForMainPeriod(
   }
   if (period === 'all') {
     return validIntervalsForAllTimePeriod(siteTimezoneOffset, siteStatsBegin)
+  }
+  if (
+    period === 'day' &&
+    date &&
+    nativeStatsBegin &&
+    date.format('YYYY-MM-DD') < nativeStatsBegin
+  ) {
+    return [Interval.day]
   }
   return VALID_INTERVALS_BY_FIXED_PERIOD[period as FixedPeriod]
 }
@@ -163,6 +184,8 @@ function validIntervalsForCustomComparison(
 function defaultForMainPeriod(
   siteTimezoneOffset: DashboardTimeSettings['siteTimezoneOffset'],
   siteStatsBegin: DashboardTimeSettings['siteStatsBegin'],
+  date: DashboardTimeSettings['date'] | undefined,
+  nativeStatsBegin: string | undefined,
   period: DashboardPeriod,
   from: Dayjs | null,
   to: Dayjs | null
@@ -177,6 +200,15 @@ function defaultForMainPeriod(
     ).includes(Interval.day)
       ? Interval.day
       : Interval.month
+  }
+
+  if (
+    period === 'day' &&
+    date &&
+    nativeStatsBegin &&
+    date.format('YYYY-MM-DD') < nativeStatsBegin
+  ) {
+    return Interval.day
   }
 
   switch (period) {

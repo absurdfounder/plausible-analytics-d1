@@ -38024,7 +38024,7 @@ function GoToSites() {
 var import_react149 = __toESM(require_react());
 
 // js/dashboard/stats/graph/visitor-graph.tsx
-var import_react84 = __toESM(require_react());
+var import_react85 = __toESM(require_react());
 
 // js/dashboard/util/storage.js
 var memStore = {};
@@ -39163,6 +39163,8 @@ function extractIntervalFromDimensions(dimensions) {
 function validIntervals({
   siteTimezoneOffset,
   siteStatsBegin,
+  date,
+  nativeStatsBegin,
   period,
   to,
   from,
@@ -39173,6 +39175,8 @@ function validIntervals({
   const mainIntervals = validIntervalsForMainPeriod(
     siteTimezoneOffset,
     siteStatsBegin,
+    date,
+    nativeStatsBegin,
     period,
     from,
     to
@@ -39187,6 +39191,8 @@ function validIntervals({
 function getDefaultInterval({
   siteTimezoneOffset,
   siteStatsBegin,
+  date,
+  nativeStatsBegin,
   period,
   to,
   from,
@@ -39197,6 +39203,8 @@ function getDefaultInterval({
   const defaultForMain = defaultForMainPeriod(
     siteTimezoneOffset,
     siteStatsBegin,
+    date,
+    nativeStatsBegin,
     period,
     from,
     to
@@ -39218,12 +39226,15 @@ function max_coarseness(intervals) {
 function coarser(a3, b2) {
   return max_coarseness(a3) >= max_coarseness(b2) ? a3 : b2;
 }
-function validIntervalsForMainPeriod(siteTimezoneOffset, siteStatsBegin, period, from, to) {
+function validIntervalsForMainPeriod(siteTimezoneOffset, siteStatsBegin, date, nativeStatsBegin, period, from, to) {
   if (period === "custom" /* custom */ && from && to) {
     return validIntervalsForCustomPeriod({ from, to });
   }
   if (period === "all") {
     return validIntervalsForAllTimePeriod(siteTimezoneOffset, siteStatsBegin);
+  }
+  if (period === "day" && date && nativeStatsBegin && date.format("YYYY-MM-DD") < nativeStatsBegin) {
+    return ["day" /* day */];
   }
   return VALID_INTERVALS_BY_FIXED_PERIOD[period];
 }
@@ -39233,7 +39244,7 @@ function validIntervalsForCustomComparison(comparison, compare_from, compare_to)
   }
   return null;
 }
-function defaultForMainPeriod(siteTimezoneOffset, siteStatsBegin, period, from, to) {
+function defaultForMainPeriod(siteTimezoneOffset, siteStatsBegin, date, nativeStatsBegin, period, from, to) {
   if (period === "custom" /* custom */ && from && to) {
     return defaultForCustomPeriod({ from, to });
   }
@@ -39242,6 +39253,9 @@ function defaultForMainPeriod(siteTimezoneOffset, siteStatsBegin, period, from, 
       siteTimezoneOffset,
       siteStatsBegin
     ).includes("day" /* day */) ? "day" /* day */ : "month" /* month */;
+  }
+  if (period === "day" && date && nativeStatsBegin && date.format("YYYY-MM-DD") < nativeStatsBegin) {
+    return "day" /* day */;
   }
   switch (period) {
     case "day":
@@ -54043,6 +54057,8 @@ var useStoredInterval = (props) => {
   const customTo = to?.valueOf();
   const customComparisonFrom = compare_from?.valueOf();
   const customComparisonTo = compare_to?.valueOf();
+  const selectedDate = props.date?.valueOf();
+  const nativeStatsBegin = props.nativeStatsBegin;
   const { availableIntervals, storableIntervals } = (0, import_react74.useMemo)(() => {
     return {
       availableIntervals: validIntervals(props),
@@ -54054,7 +54070,9 @@ var useStoredInterval = (props) => {
     customTo,
     comparison,
     customComparisonFrom,
-    customComparisonTo
+    customComparisonTo,
+    selectedDate,
+    nativeStatsBegin
   ]);
   const isValid = (0, import_react74.useCallback)(
     (interval2) => !!interval2 && availableIntervals.includes(interval2),
@@ -54136,6 +54154,8 @@ function GraphIntervalProvider({
     domain: site.domain,
     siteTimezoneOffset: site.offset,
     siteStatsBegin: site.statsBegin,
+    nativeStatsBegin: site.nativeStatsBegin,
+    date: dashboardState.date,
     to: dashboardState.to,
     from: dashboardState.from,
     period: dashboardState.period,
@@ -54991,22 +55011,48 @@ var RoutelessAnnotationModals = () => {
   ));
 };
 
+// js/dashboard/components/notice.tsx
+var import_react84 = __toESM(require_react());
+var import_classnames23 = __toESM(require_classnames());
+var themeClassNames = {
+  yellow: "bg-yellow-100/60 dark:bg-yellow-700/30",
+  red: "bg-red-100 dark:bg-red-700/30"
+};
+var Notice = ({
+  title,
+  description,
+  theme = "yellow",
+  className
+}) => /* @__PURE__ */ import_react84.default.createElement(
+  "div",
+  {
+    className: (0, import_classnames23.default)(
+      "flex flex-col gap-y-0.5 rounded-md px-3 py-2.5",
+      themeClassNames[theme],
+      className
+    )
+  },
+  /* @__PURE__ */ import_react84.default.createElement("p", { className: "text-sm font-semibold text-gray-900 dark:text-gray-100" }, title),
+  description && /* @__PURE__ */ import_react84.default.createElement("p", { className: "text-sm text-gray-600 dark:text-gray-200/60" }, description)
+);
+
 // js/dashboard/stats/graph/visitor-graph.tsx
 var DEFAULT_TOP_STATS_LOADING_HEIGHT_PX = 85;
 var DEFAULT_GRAPH_METRIC = "visitors";
 function VisitorGraph({
   updateImportedDataInView
 }) {
-  const topStatsBoundary = (0, import_react84.useRef)(null);
-  const mainGraphContainer = (0, import_react84.useRef)(null);
+  const topStatsBoundary = (0, import_react85.useRef)(null);
+  const mainGraphContainer = (0, import_react85.useRef)(null);
   const { width } = useMainGraphWidth(mainGraphContainer);
   const site = useSiteContext();
+  const { dashboardState } = useDashboardStateContext();
   const getAnnotationsQuery = useGetAnnotations();
   const { selectedInterval } = useGraphIntervalContext();
-  const [selectedMetric, setSelectedMetric] = (0, import_react84.useState)(
+  const [selectedMetric, setSelectedMetric] = (0, import_react85.useState)(
     getStoredMetric(site) || DEFAULT_GRAPH_METRIC
   );
-  const onMetricClick = (0, import_react84.useCallback)(
+  const onMetricClick = (0, import_react85.useCallback)(
     (metric) => {
       setStoredMetric(site, metric);
       setSelectedMetric(metric);
@@ -55021,7 +55067,7 @@ function VisitorGraph({
     apiState: mainGraphApiState,
     isRealtimeSilentUpdate: isMainGraphRealtimeSilentUpdate
   } = useMainGraphQuery(selectedMetric, selectedInterval);
-  (0, import_react84.useEffect)(() => {
+  (0, import_react85.useEffect)(() => {
     if (topStatsApiState.data) {
       const availableMetrics = topStatsApiState.data.query.metrics;
       setSelectedMetric((currentlySelectedMetric) => {
@@ -55033,7 +55079,7 @@ function VisitorGraph({
       });
     }
   }, [topStatsApiState.data]);
-  (0, import_react84.useEffect)(() => {
+  (0, import_react85.useEffect)(() => {
     if (topStatsApiState.data && typeof updateImportedDataInView === "function") {
       updateImportedDataInView(
         topStatsApiState.data.meta.imports_included
@@ -55045,27 +55091,29 @@ function VisitorGraph({
   );
   const switchDisabled = topStatsApiState.data?.meta.imports_skip_reason === "unsupported_query";
   const setImportsIncluded = useSetImportsIncluded();
-  (0, import_react84.useEffect)(() => {
+  (0, import_react85.useEffect)(() => {
     if (topStatsApiState.data) {
       setImportsIncluded({ switchVisible, switchDisabled });
     } else {
       setImportsIncluded(null);
     }
   }, [topStatsApiState.data, switchVisible, switchDisabled, setImportsIncluded]);
-  (0, import_react84.useEffect)(() => {
+  (0, import_react85.useEffect)(() => {
     return () => setImportsIncluded(null);
   }, [setImportsIncluded]);
   const { heightPx } = useGuessTopStatsHeight(site, topStatsBoundary);
   const showFullLoader = topStatsApiState.isFetching && topStatsApiState.isStale && !isTopStatsRealtimeSilentUpdate;
   const showGraphLoader = mainGraphApiState.isFetching && mainGraphApiState.isStale && !isMainGraphRealtimeSilentUpdate && !showFullLoader;
-  return /* @__PURE__ */ import_react84.default.createElement("div", { className: "relative w-full bg-white rounded-md shadow-sm dark:bg-gray-900" }, /* @__PURE__ */ import_react84.default.createElement(import_react84.default.Fragment, null, /* @__PURE__ */ import_react84.default.createElement(
+  const importedHourlyNotice = dashboardState.with_imported && ["hour", "minute"].includes(selectedInterval) && mainGraphApiState.data?.meta.imports_skip_reason === "unsupported_interval";
+  const singleImportedDay = dashboardState.with_imported && selectedInterval === "day" && mainGraphApiState.data?.meta.imports_included && (dashboardState.period === "day" || dashboardState.period === "custom" && dashboardState.from && dashboardState.to && dashboardState.from.isSame(dashboardState.to, "day"));
+  return /* @__PURE__ */ import_react85.default.createElement("div", { className: "relative w-full bg-white rounded-md shadow-sm dark:bg-gray-900" }, /* @__PURE__ */ import_react85.default.createElement(import_react85.default.Fragment, null, /* @__PURE__ */ import_react85.default.createElement(
     "div",
     {
       id: "top-stats-container",
       className: "flex flex-wrap relative",
       ref: topStatsBoundary
     },
-    topStatsApiState.data ? /* @__PURE__ */ import_react84.default.createElement(
+    topStatsApiState.data ? /* @__PURE__ */ import_react85.default.createElement(
       TopStats,
       {
         data: topStatsApiState.data,
@@ -55075,7 +55123,7 @@ function VisitorGraph({
       }
     ) : (
       // prevent the top stats area from jumping on initial load
-      /* @__PURE__ */ import_react84.default.createElement(
+      /* @__PURE__ */ import_react85.default.createElement(
         "div",
         {
           style: {
@@ -55084,23 +55132,37 @@ function VisitorGraph({
         }
       )
     )
-  ), /* @__PURE__ */ import_react84.default.createElement("div", { className: "relative flex flex-col pl-3 pr-4" }, /* @__PURE__ */ import_react84.default.createElement(MainGraphContainer, { ref: mainGraphContainer }, !!mainGraphApiState.data && !!width && /* @__PURE__ */ import_react84.default.createElement(import_react84.default.Fragment, null, !showGraphLoader && /* @__PURE__ */ import_react84.default.createElement(
+  ), /* @__PURE__ */ import_react85.default.createElement("div", { className: "relative flex flex-col pl-3 pr-4" }, importedHourlyNotice && /* @__PURE__ */ import_react85.default.createElement(
+    Notice,
+    {
+      className: "mx-3 mt-3",
+      title: "Imported history is daily only",
+      description: "Plausible exports daily totals, not visit timestamps. Hourly values cannot be reconstructed; choose Days to see imported history."
+    }
+  ), singleImportedDay && /* @__PURE__ */ import_react85.default.createElement(
+    Notice,
+    {
+      className: "mx-3 mt-3",
+      title: "One daily total is available for this date",
+      description: "A single day gives one chart point. Select a date range to see the day-by-day trend."
+    }
+  ), /* @__PURE__ */ import_react85.default.createElement(MainGraphContainer, { ref: mainGraphContainer }, !!mainGraphApiState.data && !!width && /* @__PURE__ */ import_react85.default.createElement(import_react85.default.Fragment, null, !showGraphLoader && /* @__PURE__ */ import_react85.default.createElement(
     MainGraph,
     {
       width,
       data: mainGraphApiState.data,
       annotations: getAnnotationsQuery.data ?? []
     }
-  ), showGraphLoader && /* @__PURE__ */ import_react84.default.createElement(Loader, null))))), (!(topStatsApiState.data && mainGraphApiState.data) || showFullLoader) && /* @__PURE__ */ import_react84.default.createElement(Loader, null));
+  ), showGraphLoader && /* @__PURE__ */ import_react85.default.createElement(Loader, null))))), (!(topStatsApiState.data && mainGraphApiState.data) || showFullLoader) && /* @__PURE__ */ import_react85.default.createElement(Loader, null));
 }
 var Loader = () => {
-  return /* @__PURE__ */ import_react84.default.createElement(
+  return /* @__PURE__ */ import_react85.default.createElement(
     "div",
     {
       "data-testid": "loading-spinner",
       className: "absolute inset-0 bg-white rounded-md dark:bg-gray-900 flex items-center justify-center"
     },
-    /* @__PURE__ */ import_react84.default.createElement("div", { className: "loading" }, /* @__PURE__ */ import_react84.default.createElement("div", null))
+    /* @__PURE__ */ import_react85.default.createElement("div", { className: "loading" }, /* @__PURE__ */ import_react85.default.createElement("div", null))
   );
 };
 function getStoredMetricKey(site) {
@@ -55122,7 +55184,7 @@ function setStoredTopStatsHeight(site, heightPx) {
   setItem(getStoredTopStatsHeightKey(site), heightPx);
 }
 function useGuessTopStatsHeight(site, topStatsBoundary) {
-  (0, import_react84.useEffect)(() => {
+  (0, import_react85.useEffect)(() => {
     const resizeObserver = new ResizeObserver(() => {
       if (topStatsBoundary.current) {
         setStoredTopStatsHeight(
@@ -55144,27 +55206,27 @@ function useGuessTopStatsHeight(site, topStatsBoundary) {
 }
 
 // js/dashboard/stats/pages/index.tsx
-var import_react91 = __toESM(require_react());
-var import_classnames26 = __toESM(require_classnames());
+var import_react92 = __toESM(require_react());
+var import_classnames27 = __toESM(require_classnames());
 
 // js/dashboard/stats/pages/details.tsx
-var import_react90 = __toESM(require_react());
+var import_react91 = __toESM(require_react());
 
 // js/dashboard/stats/modals/details-breakdown.tsx
-var import_react89 = __toESM(require_react());
+var import_react90 = __toESM(require_react());
 
 // js/dashboard/hooks/use-metric-order-by.ts
-var import_react85 = __toESM(require_react());
+var import_react86 = __toESM(require_react());
 function useMetricOrderBy({
   metrics,
   defaultOrderBy
 }) {
-  const [orderBy, setOrderBy] = (0, import_react85.useState)([]);
-  const orderByDictionary = (0, import_react85.useMemo)(
+  const [orderBy, setOrderBy] = (0, import_react86.useState)([]);
+  const orderByDictionary = (0, import_react86.useMemo)(
     () => orderBy.length ? Object.fromEntries(orderBy) : Object.fromEntries(defaultOrderBy),
     [orderBy, defaultOrderBy]
   );
-  const toggleSortByMetric = (0, import_react85.useCallback)(
+  const toggleSortByMetric = (0, import_react86.useCallback)(
     (metric) => {
       if (!metrics.find((m6) => m6 === metric)) {
         return;
@@ -55271,7 +55333,7 @@ function useRememberOrderBy({
   dimensionLabel
 }) {
   const site = useSiteContext();
-  (0, import_react85.useEffect)(() => {
+  (0, import_react86.useEffect)(() => {
     maybeStoreOrderBy({
       domain: site.domain,
       metrics,
@@ -55282,11 +55344,11 @@ function useRememberOrderBy({
 }
 
 // js/dashboard/stats/modals/breakdown-table.tsx
-var import_react87 = __toESM(require_react());
+var import_react88 = __toESM(require_react());
 
 // js/dashboard/components/table.tsx
-var import_classnames23 = __toESM(require_classnames());
-var import_react86 = __toESM(require_react());
+var import_classnames24 = __toESM(require_classnames());
+var import_react87 = __toESM(require_react());
 function Row({
   row,
   columns,
@@ -55294,7 +55356,7 @@ function Row({
   tappedKey,
   onTap
 }) {
-  const [isHovered, setIsHovered] = (0, import_react86.useState)(false);
+  const [isHovered, setIsHovered] = (0, import_react87.useState)(false);
   const isTapped = tappedKey === rowKey;
   const isActive = isHovered || isTapped;
   const handleClick = (e3) => {
@@ -55302,7 +55364,7 @@ function Row({
       onTap(isTapped ? null : rowKey);
     }
   };
-  return /* @__PURE__ */ import_react86.default.createElement(
+  return /* @__PURE__ */ import_react87.default.createElement(
     "tr",
     {
       "data-testid": "report-row",
@@ -55311,11 +55373,11 @@ function Row({
       onMouseLeave: () => setIsHovered(false),
       onClick: handleClick
     },
-    columns.map((col) => /* @__PURE__ */ import_react86.default.createElement(
+    columns.map((col) => /* @__PURE__ */ import_react87.default.createElement(
       "td",
       {
         key: `${col.key}_${rowKey}`,
-        className: (0, import_classnames23.default)(
+        className: (0, import_classnames24.default)(
           "p-2 font-medium first:rounded-s-sm last:rounded-e-sm",
           col.width
         ),
@@ -55330,20 +55392,20 @@ function Table({
   columns,
   getRowKey
 }) {
-  const [tappedKey, setTappedKey] = (0, import_react86.useState)(null);
-  return /* @__PURE__ */ import_react86.default.createElement("table", { className: "border-collapse table-striped table-fixed w-max min-w-full" }, /* @__PURE__ */ import_react86.default.createElement("thead", { className: "sticky top-0 bg-white dark:bg-gray-900 z-10" }, /* @__PURE__ */ import_react86.default.createElement("tr", { className: "text-xs font-semibold text-gray-500 dark:text-gray-400" }, columns.map((col) => /* @__PURE__ */ import_react86.default.createElement(
+  const [tappedKey, setTappedKey] = (0, import_react87.useState)(null);
+  return /* @__PURE__ */ import_react87.default.createElement("table", { className: "border-collapse table-striped table-fixed w-max min-w-full" }, /* @__PURE__ */ import_react87.default.createElement("thead", { className: "sticky top-0 bg-white dark:bg-gray-900 z-10" }, /* @__PURE__ */ import_react87.default.createElement("tr", { className: "text-xs font-semibold text-gray-500 dark:text-gray-400" }, columns.map((col) => /* @__PURE__ */ import_react87.default.createElement(
     "th",
     {
       key: `header_${col.key}`,
       "data-testid": "report-header",
-      className: (0, import_classnames23.default)("p-2", col.width),
+      className: (0, import_classnames24.default)("p-2", col.width),
       align: col.align
     },
     col.renderLabel()
-  )))), /* @__PURE__ */ import_react86.default.createElement("tbody", null, data.pages.map(
+  )))), /* @__PURE__ */ import_react87.default.createElement("tbody", null, data.pages.map(
     (page, pageIndex) => page.map((row) => {
       const rowKey = `${getRowKey(row)}_${pageIndex}`;
-      return /* @__PURE__ */ import_react86.default.createElement(
+      return /* @__PURE__ */ import_react87.default.createElement(
         Row,
         {
           key: rowKey,
@@ -55375,17 +55437,17 @@ function BreakdownTable({
   onClose,
   getRowKey
 }) {
-  const searchRef = (0, import_react87.useRef)(null);
+  const searchRef = (0, import_react88.useRef)(null);
   const navigate = useAppNavigate();
   const handleClose = onClose ?? (() => navigate({ path: rootRoute.path, search: (s10) => s10 }));
-  return /* @__PURE__ */ import_react87.default.createElement("div", { className: "min-h-[min(30rem,66vh)] flex flex-col flex-1 overflow-auto" }, /* @__PURE__ */ import_react87.default.createElement("div", { className: "flex justify-between items-center gap-4" }, /* @__PURE__ */ import_react87.default.createElement("div", { className: "flex items-center gap-4 w-full" }, /* @__PURE__ */ import_react87.default.createElement("h1", { className: "shrink-0 mb-0.5 text-base md:text-lg font-bold dark:text-gray-100" }, title), typeof onSearch === "function" && /* @__PURE__ */ import_react87.default.createElement(
+  return /* @__PURE__ */ import_react88.default.createElement("div", { className: "min-h-[min(30rem,66vh)] flex flex-col flex-1 overflow-auto" }, /* @__PURE__ */ import_react88.default.createElement("div", { className: "flex justify-between items-center gap-4" }, /* @__PURE__ */ import_react88.default.createElement("div", { className: "flex items-center gap-4 w-full" }, /* @__PURE__ */ import_react88.default.createElement("h1", { className: "shrink-0 mb-0.5 text-base md:text-lg font-bold dark:text-gray-100" }, title), typeof onSearch === "function" && /* @__PURE__ */ import_react88.default.createElement(
     SearchInput,
     {
       searchRef,
       onSearch,
       className: displayError && status === "error" ? "[&_input]:pointer-events-none" : ""
     }
-  ), !isPending && isFetching && /* @__PURE__ */ import_react87.default.createElement(SmallLoadingSpinner, null)), /* @__PURE__ */ import_react87.default.createElement(
+  ), !isPending && isFetching && /* @__PURE__ */ import_react88.default.createElement(SmallLoadingSpinner, null)), /* @__PURE__ */ import_react88.default.createElement(
     "button",
     {
       type: "button",
@@ -55393,8 +55455,8 @@ function BreakdownTable({
       "aria-label": "Close modal",
       className: "text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
     },
-    /* @__PURE__ */ import_react87.default.createElement(XMarkIcon_default2, { className: "size-5" })
-  )), /* @__PURE__ */ import_react87.default.createElement("div", { className: "my-3 md:my-4 border-b border-gray-250 dark:border-gray-750" }), /* @__PURE__ */ import_react87.default.createElement("div", { className: "flex-1 overflow-auto" }, displayError && status === "error" && /* @__PURE__ */ import_react87.default.createElement(ErrorMessage2, { error }), isPending && /* @__PURE__ */ import_react87.default.createElement(InitialLoadingSpinner, null), columns && data && /* @__PURE__ */ import_react87.default.createElement(Table, { data, columns, getRowKey }), !isPending && !isFetching && hasNextPage2 && /* @__PURE__ */ import_react87.default.createElement(
+    /* @__PURE__ */ import_react88.default.createElement(XMarkIcon_default2, { className: "size-5" })
+  )), /* @__PURE__ */ import_react88.default.createElement("div", { className: "my-3 md:my-4 border-b border-gray-250 dark:border-gray-750" }), /* @__PURE__ */ import_react88.default.createElement("div", { className: "flex-1 overflow-auto" }, displayError && status === "error" && /* @__PURE__ */ import_react88.default.createElement(ErrorMessage2, { error }), isPending && /* @__PURE__ */ import_react88.default.createElement(InitialLoadingSpinner, null), columns && data && /* @__PURE__ */ import_react88.default.createElement(Table, { data, columns, getRowKey }), !isPending && !isFetching && hasNextPage2 && /* @__PURE__ */ import_react88.default.createElement(
     LoadMore,
     {
       onClick: () => fetchNextPage(),
@@ -55402,42 +55464,42 @@ function BreakdownTable({
     }
   )));
 }
-var InitialLoadingSpinner = () => /* @__PURE__ */ import_react87.default.createElement("div", { className: "w-full h-full flex flex-col justify-center" }, /* @__PURE__ */ import_react87.default.createElement("div", { className: "mx-auto loading" }, /* @__PURE__ */ import_react87.default.createElement("div", null)));
-var SmallLoadingSpinner = () => /* @__PURE__ */ import_react87.default.createElement("div", { "data-testid": "small-loading-spinner", className: "loading sm" }, /* @__PURE__ */ import_react87.default.createElement("div", null));
-var ErrorMessage2 = ({ error }) => /* @__PURE__ */ import_react87.default.createElement("div", { className: "grid grid-rows-2 text-gray-700 dark:text-gray-300" }, /* @__PURE__ */ import_react87.default.createElement("div", { className: "text-center self-end" }, /* @__PURE__ */ import_react87.default.createElement(RocketIcon, null)), /* @__PURE__ */ import_react87.default.createElement("div", { className: "text-lg text-center" }, error ? error.message : "Error loading data. Refresh the page to try again"));
+var InitialLoadingSpinner = () => /* @__PURE__ */ import_react88.default.createElement("div", { className: "w-full h-full flex flex-col justify-center" }, /* @__PURE__ */ import_react88.default.createElement("div", { className: "mx-auto loading" }, /* @__PURE__ */ import_react88.default.createElement("div", null)));
+var SmallLoadingSpinner = () => /* @__PURE__ */ import_react88.default.createElement("div", { "data-testid": "small-loading-spinner", className: "loading sm" }, /* @__PURE__ */ import_react88.default.createElement("div", null));
+var ErrorMessage2 = ({ error }) => /* @__PURE__ */ import_react88.default.createElement("div", { className: "grid grid-rows-2 text-gray-700 dark:text-gray-300" }, /* @__PURE__ */ import_react88.default.createElement("div", { className: "text-center self-end" }, /* @__PURE__ */ import_react88.default.createElement(RocketIcon, null)), /* @__PURE__ */ import_react88.default.createElement("div", { className: "text-lg text-center" }, error ? error.message : "Error loading data. Refresh the page to try again"));
 var LoadMore = ({
   onClick,
   isFetchingNextPage
-}) => /* @__PURE__ */ import_react87.default.createElement("div", { className: "flex flex-col w-full my-4 items-center justify-center h-10" }, isFetchingNextPage ? /* @__PURE__ */ import_react87.default.createElement(SmallLoadingSpinner, null) : /* @__PURE__ */ import_react87.default.createElement("button", { onClick, type: "button", className: "button" }, "Load more"));
+}) => /* @__PURE__ */ import_react88.default.createElement("div", { className: "flex flex-col w-full my-4 items-center justify-center h-10" }, isFetchingNextPage ? /* @__PURE__ */ import_react88.default.createElement(SmallLoadingSpinner, null) : /* @__PURE__ */ import_react88.default.createElement("button", { onClick, type: "button", className: "button" }, "Load more"));
 
 // js/dashboard/stats/modals/details-breakdown.tsx
-var import_classnames25 = __toESM(require_classnames());
+var import_classnames26 = __toESM(require_classnames());
 
 // js/dashboard/components/sort-button.tsx
-var import_react88 = __toESM(require_react());
-var import_classnames24 = __toESM(require_classnames());
+var import_react89 = __toESM(require_react());
+var import_classnames25 = __toESM(require_classnames());
 var SortButton = ({
   children: children2,
   toggleSort,
   sortDirection
 }) => {
   const next = cycleSortDirection(sortDirection);
-  return /* @__PURE__ */ import_react88.default.createElement(
+  return /* @__PURE__ */ import_react89.default.createElement(
     "button",
     {
       onClick: toggleSort,
-      className: (0, import_classnames24.default)(
+      className: (0, import_classnames25.default)(
         "group",
         "hover:text-gray-700 dark:hover:text-gray-200 transition-colors duration-100",
         "relative"
       )
     },
     children2,
-    /* @__PURE__ */ import_react88.default.createElement(
+    /* @__PURE__ */ import_react89.default.createElement(
       "span",
       {
         title: next.hint,
-        className: (0, import_classnames24.default)(
+        className: (0, import_classnames25.default)(
           "absolute",
           "rounded inline-block size-4",
           "ml-1",
@@ -55486,7 +55548,7 @@ function DetailsBreakdown({
 }) {
   const site = useSiteContext();
   const { dashboardState } = useDashboardStateContext();
-  const [search, setSearch] = (0, import_react89.useState)("");
+  const [search, setSearch] = (0, import_react90.useState)("");
   const storedOrderBy = getStoredOrderBy({
     domain: site.domain,
     dimensionLabel,
@@ -55522,7 +55584,7 @@ function DetailsBreakdown({
   const apiState = useSearchAndPaginateQueryAPI(site, statsReportQueryKey, {
     getStatsQuery
   });
-  (0, import_react89.useEffect)(() => {
+  (0, import_react90.useEffect)(() => {
     const pages = apiState.data?.pages;
     if (pages?.length) {
       onDataReady?.({ pages });
@@ -55530,7 +55592,7 @@ function DetailsBreakdown({
   }, [apiState.data, onDataReady]);
   const query = apiState.data?.pages?.[0]?.query ?? null;
   const meta = apiState.data?.pages?.[0]?.meta ?? null;
-  const metricLabelFor = (0, import_react89.useCallback)(
+  const metricLabelFor = (0, import_react90.useCallback)(
     (metric) => {
       return getBreakdownMetricLabel(metric, {
         hasConversionGoalFilter: hasConversionGoalFilter(dashboardState),
@@ -55540,7 +55602,7 @@ function DetailsBreakdown({
     },
     [dashboardState, dimensions]
   );
-  const flattenedRows = (0, import_react89.useMemo)(() => {
+  const flattenedRows = (0, import_react90.useMemo)(() => {
     return apiState.data?.pages.reduce(
       (acc, p4) => acc.concat(p4.results),
       []
@@ -55551,7 +55613,7 @@ function DetailsBreakdown({
     query,
     hideMetricsIfAllNull
   );
-  const columns = (0, import_react89.useMemo)(() => {
+  const columns = (0, import_react90.useMemo)(() => {
     if (!query) return null;
     const filterDimension = query.dimensions[0];
     const hasPercentage = query.metrics.includes("percentage");
@@ -55560,7 +55622,7 @@ function DetailsBreakdown({
       {
         key: "dimension",
         renderLabel: () => dimensionLabel,
-        renderCell: (row, isActive) => /* @__PURE__ */ import_react89.default.createElement(
+        renderCell: (row, isActive) => /* @__PURE__ */ import_react90.default.createElement(
           DimensionElement,
           {
             row,
@@ -55577,7 +55639,7 @@ function DetailsBreakdown({
       }).map(
         (metric) => ({
           key: metric,
-          renderLabel: () => /* @__PURE__ */ import_react89.default.createElement(
+          renderLabel: () => /* @__PURE__ */ import_react90.default.createElement(
             MetricLabel,
             {
               label: metricLabelFor(metric),
@@ -55589,7 +55651,7 @@ function DetailsBreakdown({
           ),
           renderCell: (row, isActive) => {
             if (isVisitorsWithPercentageCell(metric)) {
-              return /* @__PURE__ */ import_react89.default.createElement(
+              return /* @__PURE__ */ import_react90.default.createElement(
                 VisitorsWithPercentageCell2,
                 {
                   row,
@@ -55598,7 +55660,7 @@ function DetailsBreakdown({
                 }
               );
             } else {
-              return /* @__PURE__ */ import_react89.default.createElement(
+              return /* @__PURE__ */ import_react90.default.createElement(
                 MetricValueCell2,
                 {
                   row,
@@ -55629,7 +55691,7 @@ function DetailsBreakdown({
     columnsHiddenForAllNull
   ]);
   const tableData = apiState.data ? { pages: apiState.data.pages.map((p4) => p4.results) } : void 0;
-  return /* @__PURE__ */ import_react89.default.createElement(
+  return /* @__PURE__ */ import_react90.default.createElement(
     BreakdownTable,
     {
       title,
@@ -55659,16 +55721,16 @@ function VisitorsWithPercentageCell2({
   const showTooltip = !!visitorsComparison;
   const dateRangeLabel = formatDateRangeLabel(query.date_range);
   const comparisonDateRangeLabel = query.comparison_date_range ? formatDateRangeLabel(query.comparison_date_range) : null;
-  const percentageCell = /* @__PURE__ */ import_react89.default.createElement(
+  const percentageCell = /* @__PURE__ */ import_react90.default.createElement(
     "span",
     {
-      className: (0, import_classnames25.default)("mr-3 text-gray-500 dark:text-gray-400", {
+      className: (0, import_classnames26.default)("mr-3 text-gray-500 dark:text-gray-400", {
         invisible: !isActive
       })
     },
     percentageFormatter2(percentageValue)
   );
-  const visitorsCell = /* @__PURE__ */ import_react89.default.createElement("span", { "data-testid": "metric-value" }, isActive ? visitorsLongFormatter(visitorsValue) : visitorsShortFormatter(visitorsValue), visitorsComparison && /* @__PURE__ */ import_react89.default.createElement(
+  const visitorsCell = /* @__PURE__ */ import_react90.default.createElement("span", { "data-testid": "metric-value" }, isActive ? visitorsLongFormatter(visitorsValue) : visitorsShortFormatter(visitorsValue), visitorsComparison && /* @__PURE__ */ import_react90.default.createElement(
     ChangeArrow,
     {
       change: visitorsComparison.change,
@@ -55677,11 +55739,11 @@ function VisitorsWithPercentageCell2({
       hideNumber: true
     }
   ));
-  const visitorsWithTooltip = showTooltip ? /* @__PURE__ */ import_react89.default.createElement(
+  const visitorsWithTooltip = showTooltip ? /* @__PURE__ */ import_react90.default.createElement(
     Tooltip,
     {
       containerRef: portalRef,
-      info: /* @__PURE__ */ import_react89.default.createElement(
+      info: /* @__PURE__ */ import_react90.default.createElement(
         MetricValueTooltipContent,
         {
           value: visitorsValue,
@@ -55695,7 +55757,7 @@ function VisitorsWithPercentageCell2({
     },
     visitorsCell
   ) : visitorsCell;
-  return /* @__PURE__ */ import_react89.default.createElement("div", { className: "flex justify-end" }, percentageCell, visitorsWithTooltip);
+  return /* @__PURE__ */ import_react90.default.createElement("div", { className: "flex justify-end" }, percentageCell, visitorsWithTooltip);
 }
 function MetricValueCell2({
   row,
@@ -55710,17 +55772,17 @@ function MetricValueCell2({
   const longFormatter = MetricFormatterLong[metric];
   const displayFormatter = isActive ? longFormatter : shortFormatter;
   const showTooltip = !!comparison;
-  const valueContent = /* @__PURE__ */ import_react89.default.createElement(
+  const valueContent = /* @__PURE__ */ import_react90.default.createElement(
     "span",
     {
-      className: (0, import_classnames25.default)(
+      className: (0, import_classnames26.default)(
         "font-medium text-sm text-gray-800 dark:text-gray-200",
         showTooltip && "cursor-default"
       ),
       "data-testid": "metric-value"
     },
     displayFormatter(value),
-    comparison && /* @__PURE__ */ import_react89.default.createElement(
+    comparison && /* @__PURE__ */ import_react90.default.createElement(
       ChangeArrow,
       {
         change: comparison.change,
@@ -55733,11 +55795,11 @@ function MetricValueCell2({
   if (!showTooltip) return valueContent;
   const dateRangeLabel = formatDateRangeLabel(query.date_range);
   const comparisonDateRangeLabel = query.comparison_date_range ? formatDateRangeLabel(query.comparison_date_range) : null;
-  return /* @__PURE__ */ import_react89.default.createElement(
+  return /* @__PURE__ */ import_react90.default.createElement(
     Tooltip,
     {
       containerRef: portalRef,
-      info: /* @__PURE__ */ import_react89.default.createElement(
+      info: /* @__PURE__ */ import_react90.default.createElement(
         MetricValueTooltipContent,
         {
           value,
@@ -55775,18 +55837,18 @@ function MetricLabel({
   sortDirection
 }) {
   const labelText = label + (warning2 ? " *" : "");
-  const inner = sortable ? /* @__PURE__ */ import_react89.default.createElement(SortButton, { toggleSort, sortDirection }, labelText) : labelText;
+  const inner = sortable ? /* @__PURE__ */ import_react90.default.createElement(SortButton, { toggleSort, sortDirection }, labelText) : labelText;
   if (warning2) {
-    return /* @__PURE__ */ import_react89.default.createElement(
+    return /* @__PURE__ */ import_react90.default.createElement(
       Tooltip,
       {
-        info: /* @__PURE__ */ import_react89.default.createElement("span", { className: "text-xs font-normal whitespace-nowrap" }, "* " + warning2),
+        info: /* @__PURE__ */ import_react90.default.createElement("span", { className: "text-xs font-normal whitespace-nowrap" }, "* " + warning2),
         className: "inline-block"
       },
       inner
     );
   } else {
-    return /* @__PURE__ */ import_react89.default.createElement(import_react89.default.Fragment, null, inner);
+    return /* @__PURE__ */ import_react90.default.createElement(import_react90.default.Fragment, null, inner);
   }
 }
 var DimensionCell = ({
@@ -55796,7 +55858,7 @@ var DimensionCell = ({
   filterDimension,
   getFilterInfo,
   row
-}) => /* @__PURE__ */ import_react89.default.createElement("div", { className: "break-all flex items-center gap-x-1" }, /* @__PURE__ */ import_react89.default.createElement(
+}) => /* @__PURE__ */ import_react90.default.createElement("div", { className: "break-all flex items-center gap-x-1" }, /* @__PURE__ */ import_react90.default.createElement(
   DrilldownLink,
   {
     path: rootRoute.path,
@@ -55827,11 +55889,11 @@ function makeHostnameDimensionElement(pageFilterKey) {
       `https://${hostname}${path2}`,
       MAX_DIMENSION_LENGTH2 + 8
     ).replace(/^https:\/\//, "");
-    return /* @__PURE__ */ import_react90.default.createElement(
+    return /* @__PURE__ */ import_react91.default.createElement(
       DimensionCell,
       {
         text: displayValue,
-        externalLink: /* @__PURE__ */ import_react90.default.createElement(
+        externalLink: /* @__PURE__ */ import_react91.default.createElement(
           DetailsExternalLink,
           {
             href: externalLinkForPage(site, path2, hostname),
@@ -55864,7 +55926,7 @@ function PagesDetails({
     hasEventFilters: hasEventFilters(dashboardState)
   });
   const DimensionElement = HOSTNAME_DIMENSION_ELEMENTS[breakdownReportKey] ?? PathDimensionElement;
-  return /* @__PURE__ */ import_react90.default.createElement(ModalWithRouting, null, /* @__PURE__ */ import_react90.default.createElement(
+  return /* @__PURE__ */ import_react91.default.createElement(ModalWithRouting, null, /* @__PURE__ */ import_react91.default.createElement(
     DetailsBreakdown,
     {
       title: pagesDetailsTitle(breakdownReportKey, dashboardState),
@@ -55881,11 +55943,11 @@ function PagesDetails({
 var PathDimensionElement = (props) => {
   const site = useSiteContext();
   const path2 = props.row.dimensions[0];
-  return /* @__PURE__ */ import_react90.default.createElement(
+  return /* @__PURE__ */ import_react91.default.createElement(
     DimensionCell,
     {
       text: path2,
-      externalLink: /* @__PURE__ */ import_react90.default.createElement(
+      externalLink: /* @__PURE__ */ import_react91.default.createElement(
         DetailsExternalLink,
         {
           href: externalLinkForPage(site, path2),
@@ -55932,13 +55994,13 @@ function Pages() {
   const site = useSiteContext();
   const tabStorageKey = `pageTab__${site.domain}`;
   const modeStorageKey = `pageBreakdownMode__${site.domain}`;
-  const [tab, setTab] = (0, import_react91.useState)(
+  const [tab, setTab] = (0, import_react92.useState)(
     initTab2(getItem(tabStorageKey))
   );
-  const [breakdownMode, setBreakdownMode] = (0, import_react91.useState)(
+  const [breakdownMode, setBreakdownMode] = (0, import_react92.useState)(
     () => getItem(modeStorageKey) === "hostname" ? "hostname" : "path"
   );
-  const [currentData, setCurrentData] = (0, import_react91.useState)(null);
+  const [currentData, setCurrentData] = (0, import_react92.useState)(null);
   const reportKey = getReportKey(tab, breakdownMode);
   const reportConfig = BREAKDOWN_REPORTS[reportKey];
   const metrics = reportConfig.getMetrics({
@@ -55955,11 +56017,11 @@ function Pages() {
   }
   const moreLinkState = currentData ? currentData.results.length > 0 ? MoreLinkState.READY : MoreLinkState.HIDDEN : MoreLinkState.LOADING;
   const DimensionElement = breakdownMode === "hostname" ? HOSTNAME_DIMENSION_CELLS[tab] : PathDimensionCell;
-  return /* @__PURE__ */ import_react91.default.createElement(ReportLayout, { testId: "report-pages", className: "overflow-x-hidden" }, /* @__PURE__ */ import_react91.default.createElement(ReportHeader, null, /* @__PURE__ */ import_react91.default.createElement("div", { className: "flex gap-x-3" }, /* @__PURE__ */ import_react91.default.createElement(TabWrapper, null, [
+  return /* @__PURE__ */ import_react92.default.createElement(ReportLayout, { testId: "report-pages", className: "overflow-x-hidden" }, /* @__PURE__ */ import_react92.default.createElement(ReportHeader, null, /* @__PURE__ */ import_react92.default.createElement("div", { className: "flex gap-x-3" }, /* @__PURE__ */ import_react92.default.createElement(TabWrapper, null, [
     "pages" /* pages */,
     "entryPages" /* entryPages */,
     "exitPages" /* exitPages */
-  ].map((reportKey2) => /* @__PURE__ */ import_react91.default.createElement(
+  ].map((reportKey2) => /* @__PURE__ */ import_react92.default.createElement(
     TabButton,
     {
       key: reportKey2,
@@ -55967,13 +56029,13 @@ function Pages() {
       onClick: () => switchTab(reportKey2)
     },
     pagesDetailsTitle(reportKey2, dashboardState)
-  ))), /* @__PURE__ */ import_react91.default.createElement(
+  ))), /* @__PURE__ */ import_react92.default.createElement(
     ImportedWarningBubble,
     {
       queryApiResponse: currentData,
       message: breakdownMode === "hostname" && tab !== "pages" /* pages */ ? "Imported data is unavailable in this view" : void 0
     }
-  )), /* @__PURE__ */ import_react91.default.createElement("div", { className: "flex items-start gap-x-3" }, /* @__PURE__ */ import_react91.default.createElement(
+  )), /* @__PURE__ */ import_react92.default.createElement("div", { className: "flex items-start gap-x-3" }, /* @__PURE__ */ import_react92.default.createElement(
     MoreLink,
     {
       state: moreLinkState,
@@ -55982,13 +56044,13 @@ function Pages() {
         search: (search) => search
       }
     }
-  ), /* @__PURE__ */ import_react91.default.createElement(
+  ), /* @__PURE__ */ import_react92.default.createElement(
     PagesBreakdownMenu,
     {
       breakdownMode,
       onSelect: selectBreakdownMode
     }
-  ))), /* @__PURE__ */ import_react91.default.createElement(
+  ))), /* @__PURE__ */ import_react92.default.createElement(
     IndexBreakdown,
     {
       key: reportKey,
@@ -56005,17 +56067,17 @@ function PagesBreakdownMenu({
   breakdownMode,
   onSelect
 }) {
-  const buttonRef = (0, import_react91.useRef)(null);
-  return /* @__PURE__ */ import_react91.default.createElement(Ct, { className: "relative" }, ({ close }) => /* @__PURE__ */ import_react91.default.createElement(import_react91.default.Fragment, null, /* @__PURE__ */ import_react91.default.createElement(
+  const buttonRef = (0, import_react92.useRef)(null);
+  return /* @__PURE__ */ import_react92.default.createElement(Ct, { className: "relative" }, ({ close }) => /* @__PURE__ */ import_react92.default.createElement(import_react92.default.Fragment, null, /* @__PURE__ */ import_react92.default.createElement(
     Ct.Overlay,
     {
       className: popover.backdrop.classNames.transparent
     }
-  ), /* @__PURE__ */ import_react91.default.createElement(BlurMenuButtonOnEscape, { targetRef: buttonRef }), /* @__PURE__ */ import_react91.default.createElement(
+  ), /* @__PURE__ */ import_react92.default.createElement(BlurMenuButtonOnEscape, { targetRef: buttonRef }), /* @__PURE__ */ import_react92.default.createElement(
     Ct.Button,
     {
       ref: buttonRef,
-      className: (0, import_classnames26.default)(
+      className: (0, import_classnames27.default)(
         popover.toggleButton.classNames.aboveBackdrop,
         "flex rounded !text-gray-500 dark:!text-gray-400 hover:!text-gray-600 dark:hover:!text-gray-300 transition-colors duration-150 before:absolute before:inset-[-8px]",
         popover.toggleButton.classNames.linkLike,
@@ -56024,24 +56086,24 @@ function PagesBreakdownMenu({
       title: "Breakdown options",
       "aria-label": "Breakdown options"
     },
-    /* @__PURE__ */ import_react91.default.createElement(EllipsisVerticalIcon_default, { className: "size-4.5" })
-  ), /* @__PURE__ */ import_react91.default.createElement(
+    /* @__PURE__ */ import_react92.default.createElement(EllipsisVerticalIcon_default, { className: "size-4.5" })
+  ), /* @__PURE__ */ import_react92.default.createElement(
     qe2,
     {
       as: "div",
       ...popover.transition.props,
-      className: (0, import_classnames26.default)(
+      className: (0, import_classnames27.default)(
         popover.transition.classNames.right,
         "mt-2 min-w-52"
       )
     },
-    /* @__PURE__ */ import_react91.default.createElement(Ct.Panel, { className: popover.panel.classNames.roundedSheet }, /* @__PURE__ */ import_react91.default.createElement("p", { className: popover.items.classNames.sectionTitle }, "Break down by"), /* @__PURE__ */ import_react91.default.createElement(
+    /* @__PURE__ */ import_react92.default.createElement(Ct.Panel, { className: popover.panel.classNames.roundedSheet }, /* @__PURE__ */ import_react92.default.createElement("p", { className: popover.items.classNames.sectionTitle }, "Break down by"), /* @__PURE__ */ import_react92.default.createElement(
       "div",
       {
         "data-testid": "dropdown-items",
         className: "flex flex-col gap-y-0.5"
       },
-      BREAKDOWN_MODE_OPTIONS.map(({ value, label }) => /* @__PURE__ */ import_react91.default.createElement(
+      BREAKDOWN_MODE_OPTIONS.map(({ value, label }) => /* @__PURE__ */ import_react92.default.createElement(
         "button",
         {
           key: value,
@@ -56050,14 +56112,14 @@ function PagesBreakdownMenu({
             close();
           },
           "data-selected": value === breakdownMode,
-          className: (0, import_classnames26.default)(
+          className: (0, import_classnames27.default)(
             popover.items.classNames.navigationLink,
             popover.items.classNames.selectedOption,
             popover.items.classNames.hoverLink
           )
         },
         label,
-        /* @__PURE__ */ import_react91.default.createElement(SelectedCheckmark, { selected: value === breakdownMode })
+        /* @__PURE__ */ import_react92.default.createElement(SelectedCheckmark, { selected: value === breakdownMode })
       ))
     ))
   )));
@@ -56066,13 +56128,13 @@ function PathDimensionCell(props) {
   const site = useSiteContext();
   const path2 = props.row.dimensions[0];
   const externalUrl = externalLinkForPage(site, path2);
-  return /* @__PURE__ */ import_react91.default.createElement(
+  return /* @__PURE__ */ import_react92.default.createElement(
     DimensionCellWithBar,
     {
       getFilterInfo: defaultGetFilterInfo,
       text: trimURL(path2, MAX_DIMENSION_LENGTH3),
       barClassName: BAR_COLOR2,
-      externalLink: externalUrl && /* @__PURE__ */ import_react91.default.createElement(IndexExternalLink, { href: externalUrl, isActive: props.isActive }),
+      externalLink: externalUrl && /* @__PURE__ */ import_react92.default.createElement(IndexExternalLink, { href: externalUrl, isActive: props.isActive }),
       ...props
     }
   );
@@ -56097,13 +56159,13 @@ function makeHostnameDimensionCell(pageFilterKey) {
       `https://${hostname}${path2}`,
       MAX_DIMENSION_LENGTH3 + 8
     ).replace(/^https:\/\//, "");
-    return /* @__PURE__ */ import_react91.default.createElement(
+    return /* @__PURE__ */ import_react92.default.createElement(
       DimensionCellWithBar,
       {
         getFilterInfo,
         text: displayValue,
         barClassName: BAR_COLOR2,
-        externalLink: externalUrl && /* @__PURE__ */ import_react91.default.createElement(IndexExternalLink, { href: externalUrl, isActive: props.isActive }),
+        externalLink: externalUrl && /* @__PURE__ */ import_react92.default.createElement(IndexExternalLink, { href: externalUrl, isActive: props.isActive }),
         ...props
       }
     );
@@ -56129,15 +56191,15 @@ var initTab2 = (storedTab) => {
 };
 
 // js/dashboard/stats/locations/index.tsx
-var import_react98 = __toESM(require_react());
+var import_react99 = __toESM(require_react());
 
 // js/dashboard/stats/locations/map.tsx
-var import_react96 = __toESM(require_react());
+var import_react97 = __toESM(require_react());
 
 // js/dashboard/stats/locations/geolocation-notice.tsx
-var import_react93 = __toESM(require_react());
+var import_react94 = __toESM(require_react());
 var GeolocationNotice = () => {
-  return /* @__PURE__ */ import_react93.default.createElement("div", { className: "max-w-24 sm:max-w-none md:max-w-24 lg:max-w-none text-xs text-gray-500 absolute bottom-0 right-0" }, "IP Geolocation by", " ", /* @__PURE__ */ import_react93.default.createElement(
+  return /* @__PURE__ */ import_react94.default.createElement("div", { className: "max-w-24 sm:max-w-none md:max-w-24 lg:max-w-none text-xs text-gray-500 absolute bottom-0 right-0" }, "IP Geolocation by", " ", /* @__PURE__ */ import_react94.default.createElement(
     "a",
     {
       target: "_blank",
@@ -57273,12 +57335,12 @@ var remapCountriesMeta = () => {
 var COUNTRIES_BY_TWO_LETTER_CODE = remapCountriesMeta();
 
 // js/dashboard/stats/locations/world-map-svg.tsx
-var import_react95 = __toESM(require_react());
-var import_classnames27 = __toESM(require_classnames());
+var import_react96 = __toESM(require_react());
+var import_classnames28 = __toESM(require_classnames());
 
 // js/dashboard/stats/locations/map-tooltip.tsx
-var import_react94 = __toESM(require_react());
-var MapTooltip = ({ name, value, label, x: x3, y: y5 }) => /* @__PURE__ */ import_react94.default.createElement(
+var import_react95 = __toESM(require_react());
+var MapTooltip = ({ name, value, label, x: x3, y: y5 }) => /* @__PURE__ */ import_react95.default.createElement(
   "div",
   {
     className: tooltipClassName({
@@ -57291,8 +57353,8 @@ var MapTooltip = ({ name, value, label, x: x3, y: y5 }) => /* @__PURE__ */ impor
       top: y5
     }
   },
-  /* @__PURE__ */ import_react94.default.createElement("div", { className: "font-semibold" }, name),
-  /* @__PURE__ */ import_react94.default.createElement("div", { className: "flex items-center gap-x-1" }, /* @__PURE__ */ import_react94.default.createElement("span", { className: "font-semibold" }, value), /* @__PURE__ */ import_react94.default.createElement("span", { className: "font-normal" }, label))
+  /* @__PURE__ */ import_react95.default.createElement("div", { className: "font-semibold" }, name),
+  /* @__PURE__ */ import_react95.default.createElement("div", { className: "flex items-center gap-x-1" }, /* @__PURE__ */ import_react95.default.createElement("span", { className: "font-semibold" }, value), /* @__PURE__ */ import_react95.default.createElement("span", { className: "font-normal" }, label))
 );
 
 // js/dashboard/stats/locations/world-map-svg.tsx
@@ -57305,9 +57367,9 @@ function WorldMapSvg({
   onCountryClick
 }) {
   const { mode } = useTheme();
-  const svgRef = (0, import_react95.useRef)(null);
-  const [tooltip, setTooltip] = (0, import_react95.useState)({ x: 0, y: 0, hoveredCountryAlpha3Code: null });
-  (0, import_react95.useEffect)(() => {
+  const svgRef = (0, import_react96.useRef)(null);
+  const [tooltip, setTooltip] = (0, import_react96.useState)({ x: 0, y: 0, hoveredCountryAlpha3Code: null });
+  (0, import_react96.useEffect)(() => {
     if (!svgRef.current) {
       return;
     }
@@ -57328,7 +57390,7 @@ function WorldMapSvg({
       svg.selectAll("*").remove();
     };
   }, []);
-  (0, import_react95.useEffect)(() => {
+  (0, import_react96.useEffect)(() => {
     if (!svgRef.current) {
       return;
     }
@@ -57348,7 +57410,7 @@ function WorldMapSvg({
     });
   }, [mode, maxValue, dataByAlpha3Code, onCountryClick]);
   const hoveredCountryData = tooltip.hoveredCountryAlpha3Code ? dataByAlpha3Code.get(tooltip.hoveredCountryAlpha3Code) : void 0;
-  return /* @__PURE__ */ import_react95.default.createElement(
+  return /* @__PURE__ */ import_react96.default.createElement(
     "div",
     {
       className: "relative flex justify-center items-center mt-4 w-full",
@@ -57357,15 +57419,15 @@ function WorldMapSvg({
         maxWidth: MAP_CONTAINER_WIDTH
       }
     },
-    /* @__PURE__ */ import_react95.default.createElement(
+    /* @__PURE__ */ import_react96.default.createElement(
       "svg",
       {
         ref: svgRef,
         viewBox: `0 0 ${MAP_CONTAINER_WIDTH} ${MAP_CONTAINER_HEIGHT}`,
-        className: (0, import_classnames27.default)("w-full", FADE_IN_CLASSNAME)
+        className: (0, import_classnames28.default)("w-full", FADE_IN_CLASSNAME)
       }
     ),
-    !!hoveredCountryData && /* @__PURE__ */ import_react95.default.createElement(
+    !!hoveredCountryData && /* @__PURE__ */ import_react96.default.createElement(
       MapTooltip,
       {
         x: tooltip.x,
@@ -57385,17 +57447,17 @@ var colorScales = {
 };
 var countryElementClass = "country";
 var countrySelector = `path.${countryElementClass}`;
-var initialStroke = (0, import_classnames27.default)(
+var initialStroke = (0, import_classnames28.default)(
   "stroke-white",
   "dark:stroke-gray-900",
   "stroke-1px"
 );
-var hoveredStroke = (0, import_classnames27.default)(
+var hoveredStroke = (0, import_classnames28.default)(
   "stroke-[1.5px]",
   "stroke-indigo-400",
   "dark:stroke-indigo-500"
 );
-var countryClass = (0, import_classnames27.default)(
+var countryClass = (0, import_classnames28.default)(
   countryElementClass,
   initialStroke,
   "transition-colors",
@@ -57403,17 +57465,17 @@ var countryClass = (0, import_classnames27.default)(
   "fill-gray-150",
   "dark:fill-gray-750"
 );
-var sharedOutlineClass = (0, import_classnames27.default)(
+var sharedOutlineClass = (0, import_classnames28.default)(
   "transition-colors",
   "fill-none",
   "pointer-events-none"
 );
-var initialOutlineClass = (0, import_classnames27.default)(
+var initialOutlineClass = (0, import_classnames28.default)(
   sharedOutlineClass,
   initialStroke,
   "opacity-0"
 );
-var hoveredOutlineClass = (0, import_classnames27.default)(sharedOutlineClass, hoveredStroke);
+var hoveredOutlineClass = (0, import_classnames28.default)(sharedOutlineClass, hoveredStroke);
 function colorInCountriesWithValues(element, getColorForValue, dataByCountryCode) {
   const svg = select_default2(element);
   return svg.selectAll(countrySelector).style("fill", (countryPath) => {
@@ -57463,8 +57525,8 @@ var WorldMap = ({
   const navigate = useAppNavigate();
   const site = useSiteContext();
   const { dashboardState } = useDashboardStateContext();
-  const [visible, setVisible] = (0, import_react96.useState)(false);
-  const metricLabel = (0, import_react96.useMemo)(
+  const [visible, setVisible] = (0, import_react97.useState)(false);
+  const metricLabel = (0, import_react97.useMemo)(
     () => getMetricLabel2(dashboardState),
     [dashboardState]
   );
@@ -57487,12 +57549,12 @@ var WorldMap = ({
   );
   const { data, isPending, isPlaceholderData, isError } = apiState;
   const isLoading = isPending || isError || isPlaceholderData && !isRealtimeSilentUpdate;
-  (0, import_react96.useEffect)(() => {
+  (0, import_react97.useEffect)(() => {
     if (data) {
       onDataReady(data);
     }
   }, [onDataReady, data]);
-  const { maxValue, dataByAlpha3Code } = (0, import_react96.useMemo)(() => {
+  const { maxValue, dataByAlpha3Code } = (0, import_react97.useMemo)(() => {
     const dataByAlpha3Code2 = /* @__PURE__ */ new Map();
     let maxValue2 = 0;
     for (const row of data?.results ?? []) {
@@ -57512,7 +57574,7 @@ var WorldMap = ({
     }
     return { maxValue: maxValue2, dataByAlpha3Code: dataByAlpha3Code2 };
   }, [data]);
-  const onCountryClick = (0, import_react96.useCallback)(
+  const onCountryClick = (0, import_react97.useCallback)(
     (country) => {
       const filters = replaceFilterByPrefix(dashboardState, "country", [
         "is",
@@ -57529,13 +57591,13 @@ var WorldMap = ({
     },
     [navigate, dashboardState, onCountrySelect]
   );
-  return /* @__PURE__ */ import_react96.default.createElement(LazyLoader, { onVisible: () => setVisible(true) }, /* @__PURE__ */ import_react96.default.createElement(
+  return /* @__PURE__ */ import_react97.default.createElement(LazyLoader, { onVisible: () => setVisible(true) }, /* @__PURE__ */ import_react97.default.createElement(
     "div",
     {
       className: "flex flex-col justify-center items-center relative",
       style: { minHeight: MIN_HEIGHT }
     },
-    isLoading ? /* @__PURE__ */ import_react96.default.createElement("div", { className: "mx-auto loading" }, /* @__PURE__ */ import_react96.default.createElement("div", null)) : /* @__PURE__ */ import_react96.default.createElement(
+    isLoading ? /* @__PURE__ */ import_react97.default.createElement("div", { className: "mx-auto loading" }, /* @__PURE__ */ import_react97.default.createElement("div", null)) : /* @__PURE__ */ import_react97.default.createElement(
       WorldMapSvg,
       {
         maxValue,
@@ -57544,13 +57606,13 @@ var WorldMap = ({
         onCountryClick
       }
     ),
-    site.isDbip && /* @__PURE__ */ import_react96.default.createElement(GeolocationNotice, null)
+    site.isDbip && /* @__PURE__ */ import_react97.default.createElement(GeolocationNotice, null)
   ));
 };
 var map_default = WorldMap;
 
 // js/dashboard/stats/locations/flag-emoji.tsx
-var import_react97 = __toESM(require_react());
+var import_react98 = __toESM(require_react());
 var FlagEmoji = ({ countryCode }) => {
   if (!countryCode) {
     return null;
@@ -57559,7 +57621,7 @@ var FlagEmoji = ({ countryCode }) => {
   if (!entry?.flag) {
     return null;
   }
-  return /* @__PURE__ */ import_react97.default.createElement("span", { className: "mr-1.5" }, entry.flag);
+  return /* @__PURE__ */ import_react98.default.createElement("span", { className: "mr-1.5" }, entry.flag);
 };
 
 // js/dashboard/stats/locations/index.tsx
@@ -57585,14 +57647,14 @@ function Locations() {
   const { dashboardState } = useDashboardStateContext();
   const site = useSiteContext();
   const tabKey = `geoTab__${site.domain}`;
-  const [tab, setTab] = (0, import_react98.useState)(initTab3(getItem(tabKey)));
-  const [prefersCountriesList, setPrefersCountriesList] = (0, import_react98.useState)(false);
-  const [currentData, setCurrentData] = (0, import_react98.useState)(null);
-  (0, import_react98.useEffect)(() => {
+  const [tab, setTab] = (0, import_react99.useState)(initTab3(getItem(tabKey)));
+  const [prefersCountriesList, setPrefersCountriesList] = (0, import_react99.useState)(false);
+  const [currentData, setCurrentData] = (0, import_react99.useState)(null);
+  (0, import_react99.useEffect)(() => {
     setItem(tabKey, tab);
   }, [tabKey, tab]);
-  const prevFilters = (0, import_react98.useRef)(getAppliedLocationsFilters(dashboardState));
-  (0, import_react98.useEffect)(() => {
+  const prevFilters = (0, import_react99.useRef)(getAppliedLocationsFilters(dashboardState));
+  (0, import_react99.useEffect)(() => {
     setTab((currentTab) => {
       const { countryFiltersApplied, regionFiltersApplied } = getAppliedLocationsFilters(dashboardState);
       const prev = { ...prevFilters.current };
@@ -57614,8 +57676,8 @@ function Locations() {
   });
   const moreLinkState = currentData ? currentData.results.length > 0 ? MoreLinkState.READY : MoreLinkState.HIDDEN : MoreLinkState.LOADING;
   const moreLinkPath = reportConfig.detailsPath;
-  const CountriesDimensionElement = (0, import_react98.useCallback)(
-    (props) => /* @__PURE__ */ import_react98.default.createElement(
+  const CountriesDimensionElement = (0, import_react99.useCallback)(
+    (props) => /* @__PURE__ */ import_react99.default.createElement(
       CountriesDimensionCell,
       {
         ...props,
@@ -57627,8 +57689,8 @@ function Locations() {
     ),
     []
   );
-  const RegionsDimensionElement = (0, import_react98.useCallback)(
-    (props) => /* @__PURE__ */ import_react98.default.createElement(
+  const RegionsDimensionElement = (0, import_react99.useCallback)(
+    (props) => /* @__PURE__ */ import_react99.default.createElement(
       RegionsDimensionCell,
       {
         ...props,
@@ -57642,13 +57704,13 @@ function Locations() {
     ["regions" /* regions */]: RegionsDimensionElement,
     ["cities" /* cities */]: CitiesDimensionCell
   }[selectedListKey];
-  return /* @__PURE__ */ import_react98.default.createElement(
+  return /* @__PURE__ */ import_react99.default.createElement(
     ReportLayout,
     {
       testId: "report-locations",
       className: tab === "map" ? "" : "overflow-x-hidden"
     },
-    /* @__PURE__ */ import_react98.default.createElement(ReportHeader, null, /* @__PURE__ */ import_react98.default.createElement("div", { className: "flex gap-x-3" }, /* @__PURE__ */ import_react98.default.createElement(TabWrapper, null, [
+    /* @__PURE__ */ import_react99.default.createElement(ReportHeader, null, /* @__PURE__ */ import_react99.default.createElement("div", { className: "flex gap-x-3" }, /* @__PURE__ */ import_react99.default.createElement(TabWrapper, null, [
       { label: "Map", value: "map" },
       {
         label: "Countries",
@@ -57656,7 +57718,7 @@ function Locations() {
       },
       { label: "Regions", value: "regions" /* regions */ },
       { label: "Cities", value: "cities" /* cities */ }
-    ].map(({ label, value }) => /* @__PURE__ */ import_react98.default.createElement(
+    ].map(({ label, value }) => /* @__PURE__ */ import_react99.default.createElement(
       TabButton,
       {
         key: value,
@@ -57664,7 +57726,7 @@ function Locations() {
         onClick: () => setTab(value)
       },
       label
-    ))), /* @__PURE__ */ import_react98.default.createElement(ImportedWarningBubble, { queryApiResponse: currentData })), /* @__PURE__ */ import_react98.default.createElement(
+    ))), /* @__PURE__ */ import_react99.default.createElement(ImportedWarningBubble, { queryApiResponse: currentData })), /* @__PURE__ */ import_react99.default.createElement(
       MoreLink,
       {
         state: moreLinkState,
@@ -57674,7 +57736,7 @@ function Locations() {
         }
       }
     )),
-    tab === "map" ? /* @__PURE__ */ import_react98.default.createElement(
+    tab === "map" ? /* @__PURE__ */ import_react99.default.createElement(
       map_default,
       {
         onCountrySelect: () => {
@@ -57683,7 +57745,7 @@ function Locations() {
         },
         onDataReady: setCurrentData
       }
-    ) : /* @__PURE__ */ import_react98.default.createElement(
+    ) : /* @__PURE__ */ import_react99.default.createElement(
       IndexBreakdown,
       {
         key: tab,
@@ -57699,39 +57761,39 @@ function Locations() {
 }
 var CountriesDimensionCell = (props) => {
   const [countryName, countryCode] = props.row.dimensions;
-  return /* @__PURE__ */ import_react98.default.createElement(
+  return /* @__PURE__ */ import_react99.default.createElement(
     DimensionCellWithBar,
     {
       ...props,
       barClassName: BAR_COLOR3,
       text: countryName,
-      icon: /* @__PURE__ */ import_react98.default.createElement(FlagEmoji, { countryCode }),
+      icon: /* @__PURE__ */ import_react99.default.createElement(FlagEmoji, { countryCode }),
       getFilterInfo: getCountriesFilterInfo
     }
   );
 };
 var RegionsDimensionCell = (props) => {
   const [regionName, _regionCode, countryCode] = props.row.dimensions;
-  return /* @__PURE__ */ import_react98.default.createElement(
+  return /* @__PURE__ */ import_react99.default.createElement(
     DimensionCellWithBar,
     {
       ...props,
       barClassName: BAR_COLOR3,
       text: regionName,
-      icon: /* @__PURE__ */ import_react98.default.createElement(FlagEmoji, { countryCode }),
+      icon: /* @__PURE__ */ import_react99.default.createElement(FlagEmoji, { countryCode }),
       getFilterInfo: getRegionsFilterInfo
     }
   );
 };
 var CitiesDimensionCell = (props) => {
   const [cityName, _cityCode, countryCode] = props.row.dimensions;
-  return /* @__PURE__ */ import_react98.default.createElement(
+  return /* @__PURE__ */ import_react99.default.createElement(
     DimensionCellWithBar,
     {
       ...props,
       barClassName: BAR_COLOR3,
       text: cityName,
-      icon: /* @__PURE__ */ import_react98.default.createElement(FlagEmoji, { countryCode }),
+      icon: /* @__PURE__ */ import_react99.default.createElement(FlagEmoji, { countryCode }),
       getFilterInfo: getCitiesFilterInfo
     }
   );
@@ -57762,10 +57824,10 @@ var getCitiesFilterInfo = (_dimension, row) => {
 };
 
 // js/dashboard/stats/devices/index.tsx
-var import_react100 = __toESM(require_react());
+var import_react101 = __toESM(require_react());
 
 // js/dashboard/stats/devices/icons.tsx
-var import_react99 = __toESM(require_react());
+var import_react100 = __toESM(require_react());
 var ICON_CLASS = "shrink-0 inline-block size-4 mr-2";
 var SVG_ICON_COLOR_CLASS = "text-gray-600 dark:text-gray-300";
 var SHARED_SVG_PROPS = {
@@ -57799,13 +57861,13 @@ var BROWSER_ICONS = {
   Ecosia: "ecosia.png",
   "vivo Browser": "vivo.png"
 };
-var BrowserFallbackIconSvg = () => /* @__PURE__ */ import_react99.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react99.default.createElement("path", { d: "M12 22c2.21 0 4-4.477 4-10S14.21 2 12 2 8 6.477 8 12s1.79 10 4 10Z" }), /* @__PURE__ */ import_react99.default.createElement("path", { d: "M2 12h20" }), /* @__PURE__ */ import_react99.default.createElement("path", { d: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Z" }));
+var BrowserFallbackIconSvg = () => /* @__PURE__ */ import_react100.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react100.default.createElement("path", { d: "M12 22c2.21 0 4-4.477 4-10S14.21 2 12 2 8 6.477 8 12s1.79 10 4 10Z" }), /* @__PURE__ */ import_react100.default.createElement("path", { d: "M2 12h20" }), /* @__PURE__ */ import_react100.default.createElement("path", { d: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Z" }));
 var BrowserIcon = ({ dimensionValue }) => {
   const filename = BROWSER_ICONS[dimensionValue];
   if (!filename) {
-    return /* @__PURE__ */ import_react99.default.createElement(BrowserFallbackIconSvg, null);
+    return /* @__PURE__ */ import_react100.default.createElement(BrowserFallbackIconSvg, null);
   }
-  return /* @__PURE__ */ import_react99.default.createElement(
+  return /* @__PURE__ */ import_react100.default.createElement(
     "img",
     {
       alt: "",
@@ -57832,16 +57894,16 @@ var OS_ICONS = {
   Fedora: "fedora.png",
   FreeBSD: "freebsd.png"
 };
-var OsFallbackIconSvg = () => /* @__PURE__ */ import_react99.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react99.default.createElement("path", { d: "M4 20.818h16a2 2 0 0 0 2-2v-4.73q0-.18-.032-.355l-2.38-9.087A2 2 0 0 0 17.617 3H6.382a2 2 0 0 0-1.968 1.646l-2.381 9.087a2 2 0 0 0-.032.355v4.73a2 2 0 0 0 2 2M22 13.91H2" }), /* @__PURE__ */ import_react99.default.createElement("path", { strokeWidth: 2.5, d: "M6.092 17.328v-.01M10.182 17.328v-.01" }));
+var OsFallbackIconSvg = () => /* @__PURE__ */ import_react100.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react100.default.createElement("path", { d: "M4 20.818h16a2 2 0 0 0 2-2v-4.73q0-.18-.032-.355l-2.38-9.087A2 2 0 0 0 17.617 3H6.382a2 2 0 0 0-1.968 1.646l-2.381 9.087a2 2 0 0 0-.032.355v4.73a2 2 0 0 0 2 2M22 13.91H2" }), /* @__PURE__ */ import_react100.default.createElement("path", { strokeWidth: 2.5, d: "M6.092 17.328v-.01M10.182 17.328v-.01" }));
 var OsIcon = ({ dimensionValue }) => {
   const filename = OS_ICONS[dimensionValue];
   if (!filename) {
-    return /* @__PURE__ */ import_react99.default.createElement(OsFallbackIconSvg, null);
+    return /* @__PURE__ */ import_react100.default.createElement(OsFallbackIconSvg, null);
   }
-  return /* @__PURE__ */ import_react99.default.createElement("img", { alt: "", src: `/images/icon/os/${filename}`, className: ICON_CLASS });
+  return /* @__PURE__ */ import_react100.default.createElement("img", { alt: "", src: `/images/icon/os/${filename}`, className: ICON_CLASS });
 };
-var MobileScreenIconSvg = () => /* @__PURE__ */ import_react99.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react99.default.createElement("rect", { x: "5", y: "2", width: "14", height: "20", rx: "2", ry: "2" }), /* @__PURE__ */ import_react99.default.createElement("line", { strokeWidth: 2.5, x1: "12", y1: "18", x2: "12", y2: "18" }));
-var TabletScreenIconSvg = () => /* @__PURE__ */ import_react99.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react99.default.createElement(
+var MobileScreenIconSvg = () => /* @__PURE__ */ import_react100.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react100.default.createElement("rect", { x: "5", y: "2", width: "14", height: "20", rx: "2", ry: "2" }), /* @__PURE__ */ import_react100.default.createElement("line", { strokeWidth: 2.5, x1: "12", y1: "18", x2: "12", y2: "18" }));
+var TabletScreenIconSvg = () => /* @__PURE__ */ import_react100.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react100.default.createElement(
   "rect",
   {
     x: "4",
@@ -57852,18 +57914,18 @@ var TabletScreenIconSvg = () => /* @__PURE__ */ import_react99.default.createEle
     ry: "2",
     transform: "rotate(180 12 12)"
   }
-), /* @__PURE__ */ import_react99.default.createElement("line", { strokeWidth: 2.5, x1: "12", y1: "18", x2: "12", y2: "18" }));
-var LaptopScreenIconSvg = () => /* @__PURE__ */ import_react99.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react99.default.createElement("rect", { x: "2", y: "3", width: "20", height: "14", rx: "2", ry: "2" }), /* @__PURE__ */ import_react99.default.createElement("line", { x1: "2", y1: "20", x2: "22", y2: "20" }));
-var DesktopScreenIconSvg = () => /* @__PURE__ */ import_react99.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react99.default.createElement("rect", { x: "2", y: "3", width: "20", height: "14", rx: "2", ry: "2" }), /* @__PURE__ */ import_react99.default.createElement("line", { x1: "8", y1: "21", x2: "16", y2: "21" }), /* @__PURE__ */ import_react99.default.createElement("line", { x1: "12", y1: "17", x2: "12", y2: "21" }));
-var UltraWideScreenIconSvg = () => /* @__PURE__ */ import_react99.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react99.default.createElement("rect", { x: "1", y: "4", width: "22", height: "12", rx: "2", ry: "2" }), /* @__PURE__ */ import_react99.default.createElement("line", { x1: "6", y1: "20", x2: "18", y2: "20" }), /* @__PURE__ */ import_react99.default.createElement("line", { x1: "12", y1: "16", x2: "12", y2: "20" }));
-var NotSetScreenIconSvg = () => /* @__PURE__ */ import_react99.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react99.default.createElement("path", { d: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Z" }), /* @__PURE__ */ import_react99.default.createElement("path", { d: "M9 10a3 3 0 1 1 6 0c0 1.31-.839 2.11-2.008 2.389-.538.128-.992.559-.992 1.111" }), /* @__PURE__ */ import_react99.default.createElement("path", { strokeWidth: 2.5, d: "M12 17.01V17" }));
+), /* @__PURE__ */ import_react100.default.createElement("line", { strokeWidth: 2.5, x1: "12", y1: "18", x2: "12", y2: "18" }));
+var LaptopScreenIconSvg = () => /* @__PURE__ */ import_react100.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react100.default.createElement("rect", { x: "2", y: "3", width: "20", height: "14", rx: "2", ry: "2" }), /* @__PURE__ */ import_react100.default.createElement("line", { x1: "2", y1: "20", x2: "22", y2: "20" }));
+var DesktopScreenIconSvg = () => /* @__PURE__ */ import_react100.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react100.default.createElement("rect", { x: "2", y: "3", width: "20", height: "14", rx: "2", ry: "2" }), /* @__PURE__ */ import_react100.default.createElement("line", { x1: "8", y1: "21", x2: "16", y2: "21" }), /* @__PURE__ */ import_react100.default.createElement("line", { x1: "12", y1: "17", x2: "12", y2: "21" }));
+var UltraWideScreenIconSvg = () => /* @__PURE__ */ import_react100.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react100.default.createElement("rect", { x: "1", y: "4", width: "22", height: "12", rx: "2", ry: "2" }), /* @__PURE__ */ import_react100.default.createElement("line", { x1: "6", y1: "20", x2: "18", y2: "20" }), /* @__PURE__ */ import_react100.default.createElement("line", { x1: "12", y1: "16", x2: "12", y2: "20" }));
+var NotSetScreenIconSvg = () => /* @__PURE__ */ import_react100.default.createElement("svg", { ...SHARED_SVG_PROPS }, /* @__PURE__ */ import_react100.default.createElement("path", { d: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Z" }), /* @__PURE__ */ import_react100.default.createElement("path", { d: "M9 10a3 3 0 1 1 6 0c0 1.31-.839 2.11-2.008 2.389-.538.128-.992.559-.992 1.111" }), /* @__PURE__ */ import_react100.default.createElement("path", { strokeWidth: 2.5, d: "M12 17.01V17" }));
 var SCREEN_SIZE_SVGS = {
-  Mobile: /* @__PURE__ */ import_react99.default.createElement(MobileScreenIconSvg, null),
-  Tablet: /* @__PURE__ */ import_react99.default.createElement(TabletScreenIconSvg, null),
-  Laptop: /* @__PURE__ */ import_react99.default.createElement(LaptopScreenIconSvg, null),
-  Desktop: /* @__PURE__ */ import_react99.default.createElement(DesktopScreenIconSvg, null),
-  "Ultra-wide": /* @__PURE__ */ import_react99.default.createElement(UltraWideScreenIconSvg, null),
-  "(not set)": /* @__PURE__ */ import_react99.default.createElement(NotSetScreenIconSvg, null)
+  Mobile: /* @__PURE__ */ import_react100.default.createElement(MobileScreenIconSvg, null),
+  Tablet: /* @__PURE__ */ import_react100.default.createElement(TabletScreenIconSvg, null),
+  Laptop: /* @__PURE__ */ import_react100.default.createElement(LaptopScreenIconSvg, null),
+  Desktop: /* @__PURE__ */ import_react100.default.createElement(DesktopScreenIconSvg, null),
+  "Ultra-wide": /* @__PURE__ */ import_react100.default.createElement(UltraWideScreenIconSvg, null),
+  "(not set)": /* @__PURE__ */ import_react100.default.createElement(NotSetScreenIconSvg, null)
 };
 var ScreenSizeIcon = ({
   dimensionValue
@@ -57875,8 +57937,8 @@ function Devices() {
   const { dashboardState } = useDashboardStateContext();
   const site = useSiteContext();
   const storageKey = `deviceTab__${site.domain}`;
-  const [tab, setTab] = (0, import_react100.useState)(initTab4(getItem(storageKey)));
-  const [currentData, setCurrentData] = (0, import_react100.useState)(null);
+  const [tab, setTab] = (0, import_react101.useState)(initTab4(getItem(storageKey)));
+  const [currentData, setCurrentData] = (0, import_react101.useState)(null);
   const reportKey = getReportKey2(tab, dashboardState);
   const reportConfig = BREAKDOWN_REPORTS[reportKey];
   const DimensionElement = {
@@ -57895,14 +57957,14 @@ function Devices() {
     setTab(tab2);
   }
   const moreLinkState = currentData ? currentData.results.length > 0 ? MoreLinkState.READY : MoreLinkState.HIDDEN : MoreLinkState.LOADING;
-  return /* @__PURE__ */ import_react100.default.createElement(ReportLayout, { testId: "report-devices", className: "overflow-x-hidden" }, /* @__PURE__ */ import_react100.default.createElement(ReportHeader, null, /* @__PURE__ */ import_react100.default.createElement("div", { className: "flex gap-x-3" }, /* @__PURE__ */ import_react100.default.createElement(TabWrapper, null, [
+  return /* @__PURE__ */ import_react101.default.createElement(ReportLayout, { testId: "report-devices", className: "overflow-x-hidden" }, /* @__PURE__ */ import_react101.default.createElement(ReportHeader, null, /* @__PURE__ */ import_react101.default.createElement("div", { className: "flex gap-x-3" }, /* @__PURE__ */ import_react101.default.createElement(TabWrapper, null, [
     { label: "Browsers", value: "browsers" /* browsers */ },
     {
       label: "Operating systems",
       value: "operatingSystems" /* operatingSystems */
     },
     { label: "Devices", value: "screenSizes" /* screenSizes */ }
-  ].map(({ label, value }) => /* @__PURE__ */ import_react100.default.createElement(
+  ].map(({ label, value }) => /* @__PURE__ */ import_react101.default.createElement(
     TabButton,
     {
       key: value,
@@ -57910,7 +57972,7 @@ function Devices() {
       onClick: () => switchTab(value)
     },
     label
-  ))), /* @__PURE__ */ import_react100.default.createElement(ImportedWarningBubble, { queryApiResponse: currentData })), /* @__PURE__ */ import_react100.default.createElement(
+  ))), /* @__PURE__ */ import_react101.default.createElement(ImportedWarningBubble, { queryApiResponse: currentData })), /* @__PURE__ */ import_react101.default.createElement(
     MoreLink,
     {
       state: moreLinkState,
@@ -57919,7 +57981,7 @@ function Devices() {
         search: (search) => search
       }
     }
-  )), /* @__PURE__ */ import_react100.default.createElement(
+  )), /* @__PURE__ */ import_react101.default.createElement(
     IndexBreakdown,
     {
       key: reportKey,
@@ -57932,54 +57994,54 @@ function Devices() {
     }
   ));
 }
-var BrowsersDimensionCell = (props) => /* @__PURE__ */ import_react100.default.createElement(
+var BrowsersDimensionCell = (props) => /* @__PURE__ */ import_react101.default.createElement(
   DimensionCellWithBar,
   {
     ...props,
     barClassName: BAR_COLOR4,
     getFilterInfo: defaultGetFilterInfo,
     text: props.row.dimensions[0],
-    icon: /* @__PURE__ */ import_react100.default.createElement(BrowserIcon, { dimensionValue: props.row.dimensions[0] })
+    icon: /* @__PURE__ */ import_react101.default.createElement(BrowserIcon, { dimensionValue: props.row.dimensions[0] })
   }
 );
-var BrowserVersionsDimensionCell = (props) => /* @__PURE__ */ import_react100.default.createElement(
+var BrowserVersionsDimensionCell = (props) => /* @__PURE__ */ import_react101.default.createElement(
   DimensionCellWithBar,
   {
     ...props,
     barClassName: BAR_COLOR4,
     getFilterInfo: defaultGetFilterInfo,
     text: formatTwoDimensionsText(props.row),
-    icon: /* @__PURE__ */ import_react100.default.createElement(BrowserIcon, { dimensionValue: props.row.dimensions[1] })
+    icon: /* @__PURE__ */ import_react101.default.createElement(BrowserIcon, { dimensionValue: props.row.dimensions[1] })
   }
 );
-var OperatingSystemsDimensionCell = (props) => /* @__PURE__ */ import_react100.default.createElement(
+var OperatingSystemsDimensionCell = (props) => /* @__PURE__ */ import_react101.default.createElement(
   DimensionCellWithBar,
   {
     ...props,
     barClassName: BAR_COLOR4,
     getFilterInfo: defaultGetFilterInfo,
     text: props.row.dimensions[0],
-    icon: /* @__PURE__ */ import_react100.default.createElement(OsIcon, { dimensionValue: props.row.dimensions[0] })
+    icon: /* @__PURE__ */ import_react101.default.createElement(OsIcon, { dimensionValue: props.row.dimensions[0] })
   }
 );
-var OperatingSystemVersionsDimensionCell = (props) => /* @__PURE__ */ import_react100.default.createElement(
+var OperatingSystemVersionsDimensionCell = (props) => /* @__PURE__ */ import_react101.default.createElement(
   DimensionCellWithBar,
   {
     ...props,
     barClassName: BAR_COLOR4,
     getFilterInfo: defaultGetFilterInfo,
     text: formatTwoDimensionsText(props.row),
-    icon: /* @__PURE__ */ import_react100.default.createElement(OsIcon, { dimensionValue: props.row.dimensions[1] })
+    icon: /* @__PURE__ */ import_react101.default.createElement(OsIcon, { dimensionValue: props.row.dimensions[1] })
   }
 );
-var ScreenSizesDimensionCell = (props) => /* @__PURE__ */ import_react100.default.createElement(
+var ScreenSizesDimensionCell = (props) => /* @__PURE__ */ import_react101.default.createElement(
   DimensionCellWithBar,
   {
     ...props,
     barClassName: BAR_COLOR4,
     getFilterInfo: getScreenFilterInfo,
     text: props.row.dimensions[0],
-    icon: /* @__PURE__ */ import_react100.default.createElement(ScreenSizeIcon, { dimensionValue: props.row.dimensions[0] })
+    icon: /* @__PURE__ */ import_react101.default.createElement(ScreenSizeIcon, { dimensionValue: props.row.dimensions[0] })
   }
 );
 var formatTwoDimensionsText = (row) => row.dimensions[0] === "(not set)" && row.dimensions[1] === "(not set)" ? "(not set)" : `${row.dimensions[1]} ${row.dimensions[0]}`;
@@ -58012,16 +58074,16 @@ var initTab4 = (storedTab) => {
 var import_react138 = __toESM(require_react());
 
 // js/dashboard/site-switcher.tsx
-var import_react103 = __toESM(require_react());
-var import_classnames29 = __toESM(require_classnames());
+var import_react104 = __toESM(require_react());
+var import_classnames30 = __toESM(require_classnames());
 
 // js/dashboard/components/site-icon.tsx
-var import_react101 = __toESM(require_react());
-var import_classnames28 = __toESM(require_classnames());
+var import_react102 = __toESM(require_react());
+var import_classnames29 = __toESM(require_classnames());
 var siteIconClassName = "shrink-0 size-5.5 rounded-md";
 var Favicon = ({ domain }) => {
   const { mode } = useTheme();
-  return /* @__PURE__ */ import_react101.default.createElement(
+  return /* @__PURE__ */ import_react102.default.createElement(
     "img",
     {
       "aria-hidden": "true",
@@ -58037,16 +58099,16 @@ var Favicon = ({ domain }) => {
     }
   );
 };
-var ConsolidatedViewIcon = () => /* @__PURE__ */ import_react101.default.createElement(
+var ConsolidatedViewIcon = () => /* @__PURE__ */ import_react102.default.createElement(
   "svg",
   {
     xmlns: "http://www.w3.org/2000/svg",
     viewBox: "0 0 20 20",
     "aria-hidden": "true",
-    className: (0, import_classnames28.default)(siteIconClassName, "text-white")
+    className: (0, import_classnames29.default)(siteIconClassName, "text-white")
   },
-  /* @__PURE__ */ import_react101.default.createElement("rect", { width: "20", height: "20", rx: "5", className: "fill-indigo-600" }),
-  /* @__PURE__ */ import_react101.default.createElement(
+  /* @__PURE__ */ import_react102.default.createElement("rect", { width: "20", height: "20", rx: "5", className: "fill-indigo-600" }),
+  /* @__PURE__ */ import_react102.default.createElement(
     "rect",
     {
       x: ".5",
@@ -58059,7 +58121,7 @@ var ConsolidatedViewIcon = () => /* @__PURE__ */ import_react101.default.createE
       className: "stroke-white/15"
     }
   ),
-  /* @__PURE__ */ import_react101.default.createElement(
+  /* @__PURE__ */ import_react102.default.createElement(
     "g",
     {
       transform: "translate(3 3) scale(.5833)",
@@ -58069,23 +58131,23 @@ var ConsolidatedViewIcon = () => /* @__PURE__ */ import_react101.default.createE
       strokeLinejoin: "round",
       strokeWidth: "1.5"
     },
-    /* @__PURE__ */ import_react101.default.createElement("path", { d: "M22 12H2M12 22c5.714-5.442 5.714-14.558 0-20M12 22C6.286 16.558 6.286 7.442 12 2" }),
-    /* @__PURE__ */ import_react101.default.createElement("path", { d: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Z" })
+    /* @__PURE__ */ import_react102.default.createElement("path", { d: "M22 12H2M12 22c5.714-5.442 5.714-14.558 0-20M12 22C6.286 16.558 6.286 7.442 12 2" }),
+    /* @__PURE__ */ import_react102.default.createElement("path", { d: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Z" })
   )
 );
 
 // js/dashboard/nav-menu/nav-menu-components.tsx
-var import_react102 = __toESM(require_react());
-var MenuSeparator = () => /* @__PURE__ */ import_react102.default.createElement("div", { className: "my-0.5 -mx-1 border-gray-200 dark:border-gray-700 border-b" });
+var import_react103 = __toESM(require_react());
+var MenuSeparator = () => /* @__PURE__ */ import_react103.default.createElement("div", { className: "my-0.5 -mx-1 border-gray-200 dark:border-gray-700 border-b" });
 
 // js/dashboard/site-switcher.tsx
-var menuItemClassName = (0, import_classnames29.default)(
+var menuItemClassName = (0, import_classnames30.default)(
   popover.items.classNames.navigationLink,
   popover.items.classNames.selectedOption,
   popover.items.classNames.hoverLink,
   "leading-5.5"
 );
-var buttonLinkClassName = (0, import_classnames29.default)(
+var buttonLinkClassName = (0, import_classnames30.default)(
   "flex-1 flex items-center justify-center",
   "my-1 mx-1",
   "border border-gray-300 dark:border-gray-700",
@@ -58103,18 +58165,18 @@ var getSwitchToSiteURL = (currentSite, site) => {
 };
 var SiteSwitcherStatic = () => {
   const currentSite = useSiteContext();
-  return /* @__PURE__ */ import_react103.default.createElement(
+  return /* @__PURE__ */ import_react104.default.createElement(
     "div",
     {
       "data-testid": "site-switcher-static",
-      className: (0, import_classnames29.default)(
+      className: (0, import_classnames30.default)(
         popover.toggleButton.classNames.rounded,
         "gap-x-1.5 pl-0 pr-2.5 font-medium text-gray-800 dark:text-gray-100"
       ),
       title: currentSite.domain
     },
-    /* @__PURE__ */ import_react103.default.createElement(Favicon, { domain: currentSite.domain }),
-    /* @__PURE__ */ import_react103.default.createElement("span", { className: "truncate hidden sm:block sm:mr-1 lg:mr-0 font-semibold" }, currentSite.domain)
+    /* @__PURE__ */ import_react104.default.createElement(Favicon, { domain: currentSite.domain }),
+    /* @__PURE__ */ import_react104.default.createElement("span", { className: "truncate hidden sm:block sm:mr-1 lg:mr-0 font-semibold" }, currentSite.domain)
   );
 };
 var SiteSwitcher = () => {
@@ -58122,7 +58184,7 @@ var SiteSwitcher = () => {
   const { modal } = useRoutelessModalsContext();
   const user = useUserContext();
   const currentSite = useSiteContext();
-  const buttonRef = (0, import_react103.useRef)(null);
+  const buttonRef = (0, import_react104.useRef)(null);
   const sitesQuery = useQuery({
     enabled: user.loggedIn,
     queryKey: ["sites"],
@@ -58133,12 +58195,12 @@ var SiteSwitcher = () => {
     placeholderData: (previousData) => previousData
   });
   if (!user.loggedIn) {
-    return /* @__PURE__ */ import_react103.default.createElement(SiteSwitcherStatic, null);
+    return /* @__PURE__ */ import_react104.default.createElement(SiteSwitcherStatic, null);
   }
   const sitesInDropdown = sitesQuery.data?.data;
   const canSeeSiteSettings = user.loggedIn && ["owner" /* owner */, "admin" /* admin */, "editor" /* editor */, "super_admin"].includes(user.role);
   const canSeeViewAllSites = user.loggedIn;
-  return /* @__PURE__ */ import_react103.default.createElement(Ct, { className: "md:relative" }, ({ close: closePopover }) => /* @__PURE__ */ import_react103.default.createElement(import_react103.default.Fragment, null, !!dashboardRouteMatch && !modal && sitesQuery.data?.data.slice(0, 8).map(({ domain, needs_verification }, index) => /* @__PURE__ */ import_react103.default.createElement(
+  return /* @__PURE__ */ import_react104.default.createElement(Ct, { className: "md:relative" }, ({ close: closePopover }) => /* @__PURE__ */ import_react104.default.createElement(import_react104.default.Fragment, null, !!dashboardRouteMatch && !modal && sitesQuery.data?.data.slice(0, 8).map(({ domain, needs_verification }, index) => /* @__PURE__ */ import_react104.default.createElement(
     Keybind,
     {
       key: domain,
@@ -58159,7 +58221,7 @@ var SiteSwitcher = () => {
       shouldIgnoreWhen: [isModifierPressed, isTyping],
       targetRef: "document"
     }
-  )), !!dashboardRouteMatch && !modal && user.team?.hasConsolidatedView && user.team.identifier && /* @__PURE__ */ import_react103.default.createElement(
+  )), !!dashboardRouteMatch && !modal && user.team?.hasConsolidatedView && user.team.identifier && /* @__PURE__ */ import_react104.default.createElement(
     Keybind,
     {
       key: user.team.identifier,
@@ -58179,16 +58241,16 @@ var SiteSwitcher = () => {
       shouldIgnoreWhen: [isModifierPressed, isTyping],
       targetRef: "document"
     }
-  ), /* @__PURE__ */ import_react103.default.createElement(
+  ), /* @__PURE__ */ import_react104.default.createElement(
     Ct.Overlay,
     {
       className: popover.backdrop.classNames.transparent
     }
-  ), /* @__PURE__ */ import_react103.default.createElement(BlurMenuButtonOnEscape, { targetRef: buttonRef }), /* @__PURE__ */ import_react103.default.createElement(
+  ), /* @__PURE__ */ import_react104.default.createElement(BlurMenuButtonOnEscape, { targetRef: buttonRef }), /* @__PURE__ */ import_react104.default.createElement(
     Ct.Button,
     {
       ref: buttonRef,
-      className: (0, import_classnames29.default)(
+      className: (0, import_classnames30.default)(
         popover.toggleButton.classNames.rounded,
         popover.toggleButton.classNames.ghost,
         popover.toggleButton.classNames.aboveBackdrop,
@@ -58196,8 +58258,8 @@ var SiteSwitcher = () => {
       ),
       title: currentSite.domain
     },
-    currentSite.isConsolidatedView ? /* @__PURE__ */ import_react103.default.createElement(ConsolidatedViewIcon, null) : /* @__PURE__ */ import_react103.default.createElement(Favicon, { domain: currentSite.domain }),
-    /* @__PURE__ */ import_react103.default.createElement(
+    currentSite.isConsolidatedView ? /* @__PURE__ */ import_react104.default.createElement(ConsolidatedViewIcon, null) : /* @__PURE__ */ import_react104.default.createElement(Favicon, { domain: currentSite.domain }),
+    /* @__PURE__ */ import_react104.default.createElement(
       "span",
       {
         "data-testid": "site-switcher-current-site",
@@ -58205,42 +58267,42 @@ var SiteSwitcher = () => {
       },
       currentSite.isConsolidatedView ? "All sites" : currentSite.domain
     ),
-    /* @__PURE__ */ import_react103.default.createElement(ChevronDownIcon_default, { className: "hidden lg:block size-4" })
-  ), /* @__PURE__ */ import_react103.default.createElement(
+    /* @__PURE__ */ import_react104.default.createElement(ChevronDownIcon_default, { className: "hidden lg:block size-4" })
+  ), /* @__PURE__ */ import_react104.default.createElement(
     qe2,
     {
       as: "div",
       ...popover.transition.props,
-      className: (0, import_classnames29.default)(
+      className: (0, import_classnames30.default)(
         popover.transition.classNames.fullwidth,
         "mt-2 md:w-80 md:right-auto md:origin-top-left"
       )
     },
-    /* @__PURE__ */ import_react103.default.createElement(
+    /* @__PURE__ */ import_react104.default.createElement(
       Ct.Panel,
       {
         "data-testid": "sitemenu",
-        className: (0, import_classnames29.default)(popover.panel.classNames.roundedSheet)
+        className: (0, import_classnames30.default)(popover.panel.classNames.roundedSheet)
       },
-      /* @__PURE__ */ import_react103.default.createElement("div", { className: "flex" }, canSeeViewAllSites && /* @__PURE__ */ import_react103.default.createElement("a", { className: buttonLinkClassName, href: `/sites` }, /* @__PURE__ */ import_react103.default.createElement(ArrowLeftIcon_default, { className: "size-4 mr-1.5" }), "Back to sites"), canSeeSiteSettings && /* @__PURE__ */ import_react103.default.createElement(
+      /* @__PURE__ */ import_react104.default.createElement("div", { className: "flex" }, canSeeViewAllSites && /* @__PURE__ */ import_react104.default.createElement("a", { className: buttonLinkClassName, href: `/sites` }, /* @__PURE__ */ import_react104.default.createElement(ArrowLeftIcon_default, { className: "size-4 mr-1.5" }), "Back to sites"), canSeeSiteSettings && /* @__PURE__ */ import_react104.default.createElement(
         "a",
         {
           className: buttonLinkClassName,
           href: `/${encodeURIComponent(currentSite.domain)}/settings/general`
         },
-        /* @__PURE__ */ import_react103.default.createElement(Cog8ToothIcon_default, { className: "size-4 mr-1.5" }),
+        /* @__PURE__ */ import_react104.default.createElement(Cog8ToothIcon_default, { className: "size-4 mr-1.5" }),
         "Site settings"
       )),
-      (canSeeSiteSettings || canSeeViewAllSites) && /* @__PURE__ */ import_react103.default.createElement(MenuSeparator, null),
-      sitesQuery.isLoading && /* @__PURE__ */ import_react103.default.createElement("div", { className: "px-3 py-2" }, /* @__PURE__ */ import_react103.default.createElement("div", { className: "loading sm" }, /* @__PURE__ */ import_react103.default.createElement("div", null))),
-      sitesQuery.isError && /* @__PURE__ */ import_react103.default.createElement("div", { className: "px-3 py-2" }, /* @__PURE__ */ import_react103.default.createElement(
+      (canSeeSiteSettings || canSeeViewAllSites) && /* @__PURE__ */ import_react104.default.createElement(MenuSeparator, null),
+      sitesQuery.isLoading && /* @__PURE__ */ import_react104.default.createElement("div", { className: "px-3 py-2" }, /* @__PURE__ */ import_react104.default.createElement("div", { className: "loading sm" }, /* @__PURE__ */ import_react104.default.createElement("div", null))),
+      sitesQuery.isError && /* @__PURE__ */ import_react104.default.createElement("div", { className: "px-3 py-2" }, /* @__PURE__ */ import_react104.default.createElement(
         ErrorPanel,
         {
           errorMessage: "Error loading sites",
           onClose: sitesQuery.refetch
         }
       )),
-      user.team.hasConsolidatedView && user.team.identifier && /* @__PURE__ */ import_react103.default.createElement(
+      user.team.hasConsolidatedView && user.team.identifier && /* @__PURE__ */ import_react104.default.createElement(
         "a",
         {
           "data-selected": currentSite.isConsolidatedView,
@@ -58250,17 +58312,17 @@ var SiteSwitcher = () => {
           }) ?? "#",
           onClick: () => closePopover()
         },
-        /* @__PURE__ */ import_react103.default.createElement(ConsolidatedViewIcon, null),
-        /* @__PURE__ */ import_react103.default.createElement("span", { className: popover.items.classNames.label }, "All sites"),
-        /* @__PURE__ */ import_react103.default.createElement(
+        /* @__PURE__ */ import_react104.default.createElement(ConsolidatedViewIcon, null),
+        /* @__PURE__ */ import_react104.default.createElement("span", { className: popover.items.classNames.label }, "All sites"),
+        /* @__PURE__ */ import_react104.default.createElement(
           SelectedCheckmark,
           {
             selected: currentSite.isConsolidatedView
           }
         ),
-        /* @__PURE__ */ import_react103.default.createElement(KeybindHint, null, "0")
+        /* @__PURE__ */ import_react104.default.createElement(KeybindHint, null, "0")
       ),
-      !!sitesInDropdown && sitesInDropdown.map(({ domain, needs_verification }, index) => /* @__PURE__ */ import_react103.default.createElement(
+      !!sitesInDropdown && sitesInDropdown.map(({ domain, needs_verification }, index) => /* @__PURE__ */ import_react104.default.createElement(
         "a",
         {
           "data-selected": currentSite.domain === domain,
@@ -58273,53 +58335,53 @@ var SiteSwitcher = () => {
           onClick: currentSite.domain === domain ? () => closePopover() : () => {
           }
         },
-        /* @__PURE__ */ import_react103.default.createElement(Favicon, { domain }),
-        /* @__PURE__ */ import_react103.default.createElement("span", { className: popover.items.classNames.label }, domain),
-        /* @__PURE__ */ import_react103.default.createElement(
+        /* @__PURE__ */ import_react104.default.createElement(Favicon, { domain }),
+        /* @__PURE__ */ import_react104.default.createElement("span", { className: popover.items.classNames.label }, domain),
+        /* @__PURE__ */ import_react104.default.createElement(
           SelectedCheckmark,
           {
             selected: currentSite.domain === domain
           }
         ),
-        sitesInDropdown.length > 1 && /* @__PURE__ */ import_react103.default.createElement(KeybindHint, null, index + 1)
+        sitesInDropdown.length > 1 && /* @__PURE__ */ import_react104.default.createElement(KeybindHint, null, index + 1)
       ))
     )
   )));
 };
 
 // js/dashboard/stats/current-visitors.js
-var import_react105 = __toESM(require_react());
-var import_classnames30 = __toESM(require_classnames());
+var import_react106 = __toESM(require_react());
+var import_classnames31 = __toESM(require_classnames());
 function CurrentVisitors({ className = "" }) {
   const lastLoadTimestamp = useLastLoadContext();
   const currentVisitors = useCurrentVisitorsContext();
   if (currentVisitors !== null) {
-    return /* @__PURE__ */ import_react105.default.createElement(
+    return /* @__PURE__ */ import_react106.default.createElement(
       Tooltip,
       {
-        info: /* @__PURE__ */ import_react105.default.createElement("div", null, /* @__PURE__ */ import_react105.default.createElement("p", { className: "whitespace-nowrap" }, "Last updated", " ", /* @__PURE__ */ import_react105.default.createElement(SecondsSinceLastLoad, { lastLoadTimestamp }), "s ago"), /* @__PURE__ */ import_react105.default.createElement("p", { className: "whitespace-nowrap font-normal text-gray-500 dark:text-gray-400" }, "Click to view realtime dashboard"))
+        info: /* @__PURE__ */ import_react106.default.createElement("div", null, /* @__PURE__ */ import_react106.default.createElement("p", { className: "whitespace-nowrap" }, "Last updated", " ", /* @__PURE__ */ import_react106.default.createElement(SecondsSinceLastLoad, { lastLoadTimestamp }), "s ago"), /* @__PURE__ */ import_react106.default.createElement("p", { className: "whitespace-nowrap font-normal text-gray-500 dark:text-gray-400" }, "Click to view realtime dashboard"))
       },
-      /* @__PURE__ */ import_react105.default.createElement(
+      /* @__PURE__ */ import_react106.default.createElement(
         AppNavigationLink,
         {
           search: (prev) => ({ ...prev, period: "realtime" }),
-          className: (0, import_classnames30.default)(
+          className: (0, import_classnames31.default)(
             popover.toggleButton.classNames.rounded,
             popover.toggleButton.classNames.ghost,
             "px-2",
             className
           )
         },
-        /* @__PURE__ */ import_react105.default.createElement(
+        /* @__PURE__ */ import_react106.default.createElement(
           "svg",
           {
             className: "inline-block w-2 text-green-500 fill-current",
             viewBox: "0 0 16 16",
             xmlns: "http://www.w3.org/2000/svg"
           },
-          /* @__PURE__ */ import_react105.default.createElement("circle", { cx: "8", cy: "8", r: "8" })
+          /* @__PURE__ */ import_react106.default.createElement("circle", { cx: "8", cy: "8", r: "8" })
         ),
-        /* @__PURE__ */ import_react105.default.createElement("div", { className: "inline-block text-gray-500 dark:text-gray-400" }, currentVisitors, /* @__PURE__ */ import_react105.default.createElement("span", { className: "hidden lg:inline" }, " ", "current visitor", currentVisitors === 1 ? "" : "s"))
+        /* @__PURE__ */ import_react106.default.createElement("div", { className: "inline-block text-gray-500 dark:text-gray-400" }, currentVisitors, /* @__PURE__ */ import_react106.default.createElement("span", { className: "hidden lg:inline" }, " ", "current visitor", currentVisitors === 1 ? "" : "s"))
       )
     );
   } else {
@@ -58338,15 +58400,15 @@ var import_react123 = __toESM(require_react());
 var import_react119 = __toESM(require_react());
 
 // js/dashboard/nav-menu/filter-pill.tsx
-var import_react112 = __toESM(require_react());
+var import_react113 = __toESM(require_react());
 var import_react_dom6 = __toESM(require_react_dom());
-var import_classnames34 = __toESM(require_classnames());
+var import_classnames35 = __toESM(require_classnames());
 
 // js/dashboard/filtering/filter-editor-context.tsx
-var import_react106 = __toESM(require_react());
-var FilterEditorContext = (0, import_react106.createContext)(null);
+var import_react107 = __toESM(require_react());
+var FilterEditorContext = (0, import_react107.createContext)(null);
 var useFilterEditorContext = () => {
-  const context = (0, import_react106.useContext)(FilterEditorContext);
+  const context = (0, import_react107.useContext)(FilterEditorContext);
   if (!context) {
     throw new Error(
       "useFilterEditorContext must be used within FilterEditorContextProvider"
@@ -58372,13 +58434,13 @@ var FilterEditorContextProvider = ({
   const navigate = useAppNavigate();
   const location = useLocation();
   const navigationType = useNavigationType();
-  const [editing, setEditingState] = (0, import_react106.useState)(null);
-  const editingRef = (0, import_react106.useRef)(null);
-  const setEditing = (0, import_react106.useCallback)((next) => {
+  const [editing, setEditingState] = (0, import_react107.useState)(null);
+  const editingRef = (0, import_react107.useRef)(null);
+  const setEditing = (0, import_react107.useCallback)((next) => {
     editingRef.current = next;
     setEditingState(next);
   }, []);
-  const navigateToFilters = (0, import_react106.useCallback)(
+  const navigateToFilters = (0, import_react107.useCallback)(
     (filters, {
       replace: replace2,
       mergedKey,
@@ -58398,11 +58460,11 @@ var FilterEditorContextProvider = ({
     }),
     [navigate, dashboardState.labels]
   );
-  const close = (0, import_react106.useCallback)(() => {
+  const close = (0, import_react107.useCallback)(() => {
     setEditing(null);
     return dashboardState.filters;
   }, [setEditing, dashboardState.filters]);
-  const open = (0, import_react106.useCallback)(
+  const open = (0, import_react107.useCallback)(
     (position, part) => {
       const current = editingRef.current;
       if (current?.position === position) {
@@ -58421,7 +58483,7 @@ var FilterEditorContextProvider = ({
     },
     [setEditing, close]
   );
-  const update = (0, import_react106.useCallback)(
+  const update = (0, import_react107.useCallback)(
     (filter2, labels) => {
       const current = editingRef.current;
       if (!current) {
@@ -58457,7 +58519,7 @@ var FilterEditorContextProvider = ({
     },
     [setEditing, dashboardState.filters, navigateToFilters]
   );
-  const remove2 = (0, import_react106.useCallback)(
+  const remove2 = (0, import_react107.useCallback)(
     (position) => {
       const current = editingRef.current;
       if (current?.position === position) {
@@ -58474,7 +58536,7 @@ var FilterEditorContextProvider = ({
     },
     [setEditing, close, dashboardState.filters, navigateToFilters]
   );
-  const add = (0, import_react106.useCallback)(
+  const add = (0, import_react107.useCallback)(
     (filterKey) => {
       const filters = close();
       const existingIndex = canHaveMultipleFilters(filterKey) ? -1 : filters.findIndex(([_operation, key]) => key === filterKey);
@@ -58496,16 +58558,16 @@ var FilterEditorContextProvider = ({
     },
     [setEditing, close]
   );
-  (0, import_react106.useEffect)(() => {
+  (0, import_react107.useEffect)(() => {
     if (navigationType === Action.Pop) {
       setEditing(null);
     }
   }, [setEditing, location.key, navigationType]);
-  const renderedFilters = (0, import_react106.useMemo)(
+  const renderedFilters = (0, import_react107.useMemo)(
     () => editing?.draft ? insertAt(dashboardState.filters, editing.position, editing.draft) : dashboardState.filters,
     [dashboardState.filters, editing]
   );
-  const value = (0, import_react106.useMemo)(
+  const value = (0, import_react107.useMemo)(
     () => ({
       renderedFilters,
       openPosition: editing?.position ?? null,
@@ -58518,13 +58580,13 @@ var FilterEditorContextProvider = ({
     }),
     [renderedFilters, editing, open, close, update, remove2, add]
   );
-  return /* @__PURE__ */ import_react106.default.createElement(FilterEditorContext.Provider, { value }, children2);
+  return /* @__PURE__ */ import_react107.default.createElement(FilterEditorContext.Provider, { value }, children2);
 };
 
 // js/dashboard/nav-menu/filter-pill-popover.tsx
-var import_react107 = __toESM(require_react());
+var import_react108 = __toESM(require_react());
 var import_react_dom5 = __toESM(require_react_dom());
-var import_classnames31 = __toESM(require_classnames());
+var import_classnames32 = __toESM(require_classnames());
 var FilterPillPopover = ({
   anchorElement,
   containerElement,
@@ -58532,7 +58594,7 @@ var FilterPillPopover = ({
   className,
   children: children2
 }) => {
-  const [panelElement, setPanelElement] = (0, import_react107.useState)(null);
+  const [panelElement, setPanelElement] = (0, import_react108.useState)(null);
   const { styles, attributes } = usePopper(anchorElement, panelElement, {
     placement: "bottom-start",
     modifiers: [
@@ -58540,10 +58602,10 @@ var FilterPillPopover = ({
       { name: "preventOverflow", options: { padding: 8 } }
     ]
   });
-  (0, import_react107.useEffect)(() => {
+  (0, import_react108.useEffect)(() => {
     anchorElement?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [anchorElement]);
-  (0, import_react107.useEffect)(() => {
+  (0, import_react108.useEffect)(() => {
     const isInside = (target) => target instanceof Node && (!!panelElement?.contains(target) || !!containerElement?.contains(target));
     const onPointerDown = (event) => {
       if (!isInside(event.target)) {
@@ -58563,7 +58625,7 @@ var FilterPillPopover = ({
     };
   }, [panelElement, containerElement, onClose]);
   return (0, import_react_dom5.createPortal)(
-    /* @__PURE__ */ import_react107.default.createElement(
+    /* @__PURE__ */ import_react108.default.createElement(
       "div",
       {
         ref: setPanelElement,
@@ -58582,7 +58644,7 @@ var FilterPillPopover = ({
           }
         }
       },
-      /* @__PURE__ */ import_react107.default.createElement(
+      /* @__PURE__ */ import_react108.default.createElement(
         qe2,
         {
           as: "div",
@@ -58591,10 +58653,10 @@ var FilterPillPopover = ({
           ...popover.transition.props,
           className: "origin-top-left"
         },
-        /* @__PURE__ */ import_react107.default.createElement(
+        /* @__PURE__ */ import_react108.default.createElement(
           "div",
           {
-            className: (0, import_classnames31.default)(
+            className: (0, import_classnames32.default)(
               popover.panel.classNames.roundedSheet,
               "max-w-[calc(100vw-1rem)]",
               className
@@ -58609,16 +58671,16 @@ var FilterPillPopover = ({
 };
 
 // js/dashboard/nav-menu/filter-operator-list.tsx
-var import_react109 = __toESM(require_react());
-var import_classnames32 = __toESM(require_classnames());
+var import_react110 = __toESM(require_react());
+var import_classnames33 = __toESM(require_classnames());
 var FilterOperatorList = ({
   filter: filter2,
   onSelect
 }) => {
   const [selectedOperation, filterKey] = filter2;
-  const listRef = (0, import_react109.useRef)(null);
+  const listRef = (0, import_react110.useRef)(null);
   const operations = getSupportedOperations(filterKey);
-  (0, import_react109.useEffect)(() => {
+  (0, import_react110.useEffect)(() => {
     listRef.current?.querySelector('[data-selected="true"]')?.focus({ preventScroll: true });
   }, []);
   const onKeyDown = (event) => {
@@ -58633,7 +58695,7 @@ var FilterOperatorList = ({
     const step = event.key === "ArrowDown" ? 1 : -1;
     buttons[(index + step + buttons.length) % buttons.length]?.focus();
   };
-  return /* @__PURE__ */ import_react109.default.createElement(
+  return /* @__PURE__ */ import_react110.default.createElement(
     "div",
     {
       ref: listRef,
@@ -58641,13 +58703,13 @@ var FilterOperatorList = ({
       "aria-label": "Operators",
       className: "flex flex-col gap-y-0.5"
     },
-    operations.map((operation) => /* @__PURE__ */ import_react109.default.createElement(
+    operations.map((operation) => /* @__PURE__ */ import_react110.default.createElement(
       "button",
       {
         key: operation,
         type: "button",
         "data-selected": operation === selectedOperation,
-        className: (0, import_classnames32.default)(
+        className: (0, import_classnames33.default)(
           "w-full text-left",
           popover.items.classNames.navigationLink,
           popover.items.classNames.selectedOption,
@@ -58657,13 +58719,13 @@ var FilterOperatorList = ({
         onKeyDown
       },
       FILTER_OPERATIONS_DISPLAY_NAMES[operation],
-      /* @__PURE__ */ import_react109.default.createElement(SelectedCheckmark, { selected: operation === selectedOperation })
+      /* @__PURE__ */ import_react110.default.createElement(SelectedCheckmark, { selected: operation === selectedOperation })
     ))
   );
 };
 
 // js/dashboard/nav-menu/filter-value-picker.tsx
-var import_react111 = __toESM(require_react());
+var import_react112 = __toESM(require_react());
 
 // js/dashboard/util/fetch-suggestions.ts
 function fetchSuggestions(path2, dashboardState, input, additionalFilter) {
@@ -58707,8 +58769,8 @@ function queryForSuggestions(dashboardState, additionalFilter) {
 }
 
 // js/dashboard/components/combobox.tsx
-var import_react110 = __toESM(require_react());
-var import_classnames33 = __toESM(require_classnames());
+var import_react111 = __toESM(require_react());
+var import_classnames34 = __toESM(require_classnames());
 var isSameValue = (a3, b2) => String(a3) === String(b2);
 var matchesSearch = (option, search) => option.label.toLowerCase().includes(search.trim().toLowerCase());
 var Combobox = ({
@@ -58723,14 +58785,14 @@ var Combobox = ({
   focusOnMount
 }) => {
   const { dashboardState } = useDashboardStateContext();
-  const [initialDashboardState] = (0, import_react110.useState)(dashboardState);
-  const listboxId = (0, import_react110.useId)();
-  const inputRef = (0, import_react110.useRef)(null);
-  const listRef = (0, import_react110.useRef)(null);
-  const [input, setInput] = (0, import_react110.useState)("");
-  const [search, setSearch] = (0, import_react110.useState)("");
-  const [highlightedIndex, setHighlightedIndex] = (0, import_react110.useState)(0);
-  (0, import_react110.useEffect)(() => {
+  const [initialDashboardState] = (0, import_react111.useState)(dashboardState);
+  const listboxId = (0, import_react111.useId)();
+  const inputRef = (0, import_react111.useRef)(null);
+  const listRef = (0, import_react111.useRef)(null);
+  const [input, setInput] = (0, import_react111.useState)("");
+  const [search, setSearch] = (0, import_react111.useState)("");
+  const [highlightedIndex, setHighlightedIndex] = (0, import_react111.useState)(0);
+  (0, import_react111.useEffect)(() => {
     if (focusOnMount) {
       inputRef.current?.focus({ preventScroll: true });
     }
@@ -58811,7 +58873,7 @@ var Combobox = ({
     return "No matches found in the current dashboard. Try selecting a different time range or searching for something different";
   };
   const statusMessage = getStatusMessage();
-  return /* @__PURE__ */ import_react110.default.createElement("div", { className: "flex flex-col gap-y-1" }, /* @__PURE__ */ import_react110.default.createElement(
+  return /* @__PURE__ */ import_react111.default.createElement("div", { className: "flex flex-col gap-y-1" }, /* @__PURE__ */ import_react111.default.createElement(
     SearchInput,
     {
       searchRef: inputRef,
@@ -58831,9 +58893,9 @@ var Combobox = ({
         "aria-activedescendant": activeIndex >= 0 ? optionId(activeIndex) : void 0,
         onKeyDown
       },
-      trailing: !!request && suggestionsQuery.isFetching && /* @__PURE__ */ import_react110.default.createElement(Spinner, { className: "animate-spin size-4 text-indigo-500" })
+      trailing: !!request && suggestionsQuery.isFetching && /* @__PURE__ */ import_react111.default.createElement(Spinner, { className: "animate-spin size-4 text-indigo-500" })
     }
-  ), /* @__PURE__ */ import_react110.default.createElement(
+  ), /* @__PURE__ */ import_react111.default.createElement(
     "ul",
     {
       ref: listRef,
@@ -58848,7 +58910,7 @@ var Combobox = ({
       const selected = isSelected(option);
       const disabled = !!isDisabled?.(option);
       const text = option.freeChoice ? `Filter by '${option.label}'` : option.label;
-      return /* @__PURE__ */ import_react110.default.createElement(
+      return /* @__PURE__ */ import_react111.default.createElement(
         "li",
         {
           key: `${option.freeChoice ? "free" : "option"}-${option.value}`,
@@ -58856,7 +58918,7 @@ var Combobox = ({
           role: "option",
           "aria-selected": selected,
           "aria-disabled": disabled || void 0,
-          className: (0, import_classnames33.default)(
+          className: (0, import_classnames34.default)(
             popover.items.classNames.staticRow,
             "flex items-center gap-x-2 select-none",
             disabled ? "cursor-default text-gray-400 dark:text-gray-500" : "cursor-pointer",
@@ -58866,7 +58928,7 @@ var Combobox = ({
           onMouseDown: (event) => event.preventDefault(),
           onClick: () => select(option)
         },
-        multiple && /* @__PURE__ */ import_react110.default.createElement(
+        multiple && /* @__PURE__ */ import_react111.default.createElement(
           "input",
           {
             type: "checkbox",
@@ -58880,13 +58942,13 @@ var Combobox = ({
             })
           }
         ),
-        /* @__PURE__ */ import_react110.default.createElement("span", { className: popover.items.classNames.label, title: text }, text)
+        /* @__PURE__ */ import_react111.default.createElement("span", { className: popover.items.classNames.label, title: text }, text)
       );
     })
-  ), statusMessage && /* @__PURE__ */ import_react110.default.createElement(
+  ), statusMessage && /* @__PURE__ */ import_react111.default.createElement(
     "div",
     {
-      className: (0, import_classnames33.default)(
+      className: (0, import_classnames34.default)(
         popover.items.classNames.staticRow,
         "text-gray-500 dark:text-gray-400"
       )
@@ -58904,7 +58966,7 @@ var FilterValuePicker = ({
 }) => {
   const site = useSiteContext();
   const [operation, filterKey, clauses] = filter2;
-  const [pinned, setPinned] = (0, import_react111.useState)(
+  const [pinned, setPinned] = (0, import_react112.useState)(
     () => clauses.map((value) => ({
       value,
       label: getLabel(labels, filterKey, value)
@@ -58930,7 +58992,7 @@ var FilterValuePicker = ({
       [option.value]: option.label
     });
   };
-  return /* @__PURE__ */ import_react111.default.createElement(import_react111.default.Fragment, null, /* @__PURE__ */ import_react111.default.createElement(
+  return /* @__PURE__ */ import_react112.default.createElement(import_react112.default.Fragment, null, /* @__PURE__ */ import_react112.default.createElement(
     Combobox,
     {
       request: getValueSuggestionsRequest(site, filter2),
@@ -58942,7 +59004,7 @@ var FilterValuePicker = ({
       label: filterKey.startsWith(EVENT_PROPS_PREFIX) ? `Values for ${getPropertyKeyFromFilterKey(filterKey)}` : "Values",
       focusOnMount: true
     }
-  ), /* @__PURE__ */ import_react111.default.createElement(MenuSeparator, null), /* @__PURE__ */ import_react111.default.createElement("div", { className: "flex items-center gap-x-2 px-3 py-2" }, /* @__PURE__ */ import_react111.default.createElement(Button, { size: "xs", theme: "secondary", onClick: onDone }, "Done"), /* @__PURE__ */ import_react111.default.createElement(
+  ), /* @__PURE__ */ import_react112.default.createElement(MenuSeparator, null), /* @__PURE__ */ import_react112.default.createElement("div", { className: "flex items-center gap-x-2 px-3 py-2" }, /* @__PURE__ */ import_react112.default.createElement(Button, { size: "xs", theme: "secondary", onClick: onDone }, "Done"), /* @__PURE__ */ import_react112.default.createElement(
     Button,
     {
       size: "xs",
@@ -58956,29 +59018,29 @@ var FilterValuePicker = ({
 
 // js/dashboard/nav-menu/filter-pill.tsx
 var partClassName = "flex items-center h-full px-2 whitespace-nowrap";
-var buttonPartClassName = (0, import_classnames34.default)(
+var buttonPartClassName = (0, import_classnames35.default)(
   partClassName,
   "cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-750 aria-expanded:bg-gray-100 dark:aria-expanded:bg-gray-750"
 );
 var PillValues = ({
   values,
   error
-}) => /* @__PURE__ */ import_react112.default.createElement(
+}) => /* @__PURE__ */ import_react113.default.createElement(
   "span",
   {
-    className: (0, import_classnames34.default)(
+    className: (0, import_classnames35.default)(
       "inline-block max-w-2xs md:max-w-xs truncate",
       !!error && "text-red-600 dark:text-red-400"
     )
   },
-  values.length ? values.map((value, index) => /* @__PURE__ */ import_react112.default.createElement(import_react112.default.Fragment, { key: index }, index > 0 && /* @__PURE__ */ import_react112.default.createElement("span", { className: "text-gray-500 dark:text-gray-400" }, " or "), value)) : /* @__PURE__ */ import_react112.default.createElement("span", { className: "text-gray-500 dark:text-gray-400" }, "Select...")
+  values.length ? values.map((value, index) => /* @__PURE__ */ import_react113.default.createElement(import_react113.default.Fragment, { key: index }, index > 0 && /* @__PURE__ */ import_react113.default.createElement("span", { className: "text-gray-500 dark:text-gray-400" }, " or "), value)) : /* @__PURE__ */ import_react113.default.createElement("span", { className: "text-gray-500 dark:text-gray-400" }, "Select...")
 );
 var PillMenuPanel = ({
   open,
   buttonElement,
   children: children2
 }) => {
-  const [panelElement, setPanelElement] = (0, import_react112.useState)(null);
+  const [panelElement, setPanelElement] = (0, import_react113.useState)(null);
   const { styles, attributes, update } = usePopper(
     buttonElement,
     panelElement,
@@ -58990,13 +59052,13 @@ var PillMenuPanel = ({
       ]
     }
   );
-  (0, import_react112.useEffect)(() => {
+  (0, import_react113.useEffect)(() => {
     if (open) {
       update?.();
     }
   }, [open, update]);
   return (0, import_react_dom6.createPortal)(
-    /* @__PURE__ */ import_react112.default.createElement(
+    /* @__PURE__ */ import_react113.default.createElement(
       "div",
       {
         ref: setPanelElement,
@@ -59004,17 +59066,17 @@ var PillMenuPanel = ({
         ...attributes.popper,
         className: "z-20"
       },
-      /* @__PURE__ */ import_react112.default.createElement(
+      /* @__PURE__ */ import_react113.default.createElement(
         qe2,
         {
           as: "div",
           ...popover.transition.props,
           className: "origin-top-left"
         },
-        /* @__PURE__ */ import_react112.default.createElement(
+        /* @__PURE__ */ import_react113.default.createElement(
           Ct.Panel,
           {
-            className: (0, import_classnames34.default)(
+            className: (0, import_classnames35.default)(
               popover.panel.classNames.roundedSheet,
               "w-72 max-w-[calc(100vw-1rem)]"
             )
@@ -59032,31 +59094,31 @@ var PillMenu = ({
   renderMenu,
   children: children2
 }) => {
-  const buttonRef = (0, import_react112.useRef)(null);
-  const [buttonElement, setButtonElement] = (0, import_react112.useState)(
+  const buttonRef = (0, import_react113.useRef)(null);
+  const [buttonElement, setButtonElement] = (0, import_react113.useState)(
     null
   );
-  const setButton = (0, import_react112.useCallback)((element) => {
+  const setButton = (0, import_react113.useCallback)((element) => {
     buttonRef.current = element;
     setButtonElement(element);
   }, []);
-  return /* @__PURE__ */ import_react112.default.createElement(Ct, { className: "flex h-full" }, ({ open, close }) => /* @__PURE__ */ import_react112.default.createElement(import_react112.default.Fragment, null, /* @__PURE__ */ import_react112.default.createElement(
+  return /* @__PURE__ */ import_react113.default.createElement(Ct, { className: "flex h-full" }, ({ open, close }) => /* @__PURE__ */ import_react113.default.createElement(import_react113.default.Fragment, null, /* @__PURE__ */ import_react113.default.createElement(
     Ct.Overlay,
     {
       className: popover.backdrop.classNames.transparent
     }
-  ), /* @__PURE__ */ import_react112.default.createElement(BlurMenuButtonOnEscape, { targetRef: buttonRef }), /* @__PURE__ */ import_react112.default.createElement(
+  ), /* @__PURE__ */ import_react113.default.createElement(BlurMenuButtonOnEscape, { targetRef: buttonRef }), /* @__PURE__ */ import_react113.default.createElement(
     Ct.Button,
     {
       ref: setButton,
-      className: (0, import_classnames34.default)(
+      className: (0, import_classnames35.default)(
         className,
         popover.toggleButton.classNames.aboveBackdrop
       ),
       "aria-label": label
     },
     children2
-  ), /* @__PURE__ */ import_react112.default.createElement(PillMenuPanel, { open, buttonElement }, renderMenu(close))));
+  ), /* @__PURE__ */ import_react113.default.createElement(PillMenuPanel, { open, buttonElement }, renderMenu(close))));
 };
 function FilterPill({
   position,
@@ -59067,9 +59129,9 @@ function FilterPill({
   onRemoveClick
 }) {
   const editor = useFilterEditorContext();
-  const [containerElement, setContainerElement] = (0, import_react112.useState)(null);
-  const [operatorButton, setOperatorButton] = (0, import_react112.useState)(null);
-  const [valuesButton, setValuesButton] = (0, import_react112.useState)(
+  const [containerElement, setContainerElement] = (0, import_react113.useState)(null);
+  const [operatorButton, setOperatorButton] = (0, import_react113.useState)(null);
+  const [valuesButton, setValuesButton] = (0, import_react113.useState)(
     null
   );
   const { dimension, operation, values } = getFilterTextParts(
@@ -59081,7 +59143,7 @@ function FilterPill({
   const canChangeOperation = action?.type === "edit" && getSupportedOperations(filter2[1]).length > 1;
   const openPart = editor.openPosition === position ? editor.openPart : null;
   const toggle = (part) => openPart === part ? editor.close() : editor.open(position, part);
-  const closeEditor = (0, import_react112.useCallback)(
+  const closeEditor = (0, import_react113.useCallback)(
     ({ refocus }) => {
       const anchor = editor.openPart === "operator" ? operatorButton : valuesButton;
       editor.close();
@@ -59102,25 +59164,25 @@ function FilterPill({
     }
   };
   const roundedRight = !onRemoveClick && "rounded-r-md";
-  return /* @__PURE__ */ import_react112.default.createElement(import_react112.default.Fragment, null, !!openPart && /* @__PURE__ */ import_react112.default.createElement(
+  return /* @__PURE__ */ import_react113.default.createElement(import_react113.default.Fragment, null, !!openPart && /* @__PURE__ */ import_react113.default.createElement(
     "div",
     {
       "aria-hidden": "true",
       className: popover.backdrop.classNames.transparent
     }
-  ), /* @__PURE__ */ import_react112.default.createElement(
+  ), /* @__PURE__ */ import_react113.default.createElement(
     "div",
     {
       ref: setContainerElement,
       role: "group",
       "aria-label": plainText,
-      className: (0, import_classnames34.default)(
+      className: (0, import_classnames35.default)(
         "flex h-8 shrink-0 items-center rounded-md bg-white border border-gray-200 dark:border-gray-700 dark:bg-gray-800 text-gray-800 dark:text-gray-100 text-sm divide-x divide-gray-200 dark:divide-gray-700",
         !!openPart && "relative z-10"
       )
     },
-    /* @__PURE__ */ import_react112.default.createElement("span", { className: (0, import_classnames34.default)(partClassName, "rounded-l-md") }, dimensionLabel),
-    canChangeOperation ? /* @__PURE__ */ import_react112.default.createElement(
+    /* @__PURE__ */ import_react113.default.createElement("span", { className: (0, import_classnames35.default)(partClassName, "rounded-l-md") }, dimensionLabel),
+    canChangeOperation ? /* @__PURE__ */ import_react113.default.createElement(
       "button",
       {
         ref: setOperatorButton,
@@ -59131,36 +59193,36 @@ function FilterPill({
         onClick: () => toggle("operator")
       },
       operation
-    ) : /* @__PURE__ */ import_react112.default.createElement("span", { className: partClassName }, operation),
-    action?.type === "edit" ? /* @__PURE__ */ import_react112.default.createElement(
+    ) : /* @__PURE__ */ import_react113.default.createElement("span", { className: partClassName }, operation),
+    action?.type === "edit" ? /* @__PURE__ */ import_react113.default.createElement(
       "button",
       {
         ref: setValuesButton,
         type: "button",
-        className: (0, import_classnames34.default)(buttonPartClassName, roundedRight),
+        className: (0, import_classnames35.default)(buttonPartClassName, roundedRight),
         title: plainText,
         "aria-label": `Edit filter: ${plainText}`,
         "aria-expanded": openPart === "values",
         onClick: () => toggle("values")
       },
-      /* @__PURE__ */ import_react112.default.createElement(PillValues, { values })
-    ) : action?.type === "menu" ? /* @__PURE__ */ import_react112.default.createElement(
+      /* @__PURE__ */ import_react113.default.createElement(PillValues, { values })
+    ) : action?.type === "menu" ? /* @__PURE__ */ import_react113.default.createElement(
       PillMenu,
       {
-        className: (0, import_classnames34.default)(buttonPartClassName, roundedRight),
+        className: (0, import_classnames35.default)(buttonPartClassName, roundedRight),
         label: `Open menu: ${plainText}${error ? ` (${error})` : ""}`,
         renderMenu: action.renderMenu
       },
-      /* @__PURE__ */ import_react112.default.createElement(PillValues, { values, error })
-    ) : /* @__PURE__ */ import_react112.default.createElement(
+      /* @__PURE__ */ import_react113.default.createElement(PillValues, { values, error })
+    ) : /* @__PURE__ */ import_react113.default.createElement(
       "span",
       {
-        className: (0, import_classnames34.default)(partClassName, roundedRight),
+        className: (0, import_classnames35.default)(partClassName, roundedRight),
         title: plainText
       },
-      /* @__PURE__ */ import_react112.default.createElement(PillValues, { values })
+      /* @__PURE__ */ import_react113.default.createElement(PillValues, { values })
     ),
-    !!onRemoveClick && /* @__PURE__ */ import_react112.default.createElement(
+    !!onRemoveClick && /* @__PURE__ */ import_react113.default.createElement(
       "button",
       {
         type: "button",
@@ -59168,9 +59230,9 @@ function FilterPill({
         className: "w-7.5 flex items-center justify-center h-full rounded-r-md cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-750",
         onClick: onRemoveClick
       },
-      /* @__PURE__ */ import_react112.default.createElement(XMarkIcon_default, { className: "size-4" })
+      /* @__PURE__ */ import_react113.default.createElement(XMarkIcon_default, { className: "size-4" })
     ),
-    openPart === "operator" && /* @__PURE__ */ import_react112.default.createElement(
+    openPart === "operator" && /* @__PURE__ */ import_react113.default.createElement(
       FilterPillPopover,
       {
         anchorElement: operatorButton,
@@ -59178,9 +59240,9 @@ function FilterPill({
         onClose: closeEditor,
         className: "w-44"
       },
-      /* @__PURE__ */ import_react112.default.createElement(FilterOperatorList, { filter: filter2, onSelect: onOperationSelect })
+      /* @__PURE__ */ import_react113.default.createElement(FilterOperatorList, { filter: filter2, onSelect: onOperationSelect })
     ),
-    openPart === "values" && /* @__PURE__ */ import_react112.default.createElement(
+    openPart === "values" && /* @__PURE__ */ import_react113.default.createElement(
       FilterPillPopover,
       {
         anchorElement: valuesButton,
@@ -59188,7 +59250,7 @@ function FilterPill({
         onClose: closeEditor,
         className: "w-80 max-w-[calc(100vw-1rem)]"
       },
-      /* @__PURE__ */ import_react112.default.createElement(
+      /* @__PURE__ */ import_react113.default.createElement(
         FilterValuePicker,
         {
           filter: filter2,
@@ -59209,7 +59271,7 @@ var import_react118 = __toESM(require_react());
 var import_classnames38 = __toESM(require_classnames());
 
 // js/dashboard/segments/segment-authorship.tsx
-var import_react114 = __toESM(require_react());
+var import_react115 = __toESM(require_react());
 function SegmentAuthorship({
   className,
   showOnlyPublicData,
@@ -59218,33 +59280,8 @@ function SegmentAuthorship({
   const authorLabel = showOnlyPublicData === true ? null : segment.owner_name ?? "(Removed User)";
   const { updated_at, inserted_at } = segment;
   const showUpdatedAt = updated_at !== inserted_at;
-  return /* @__PURE__ */ import_react114.default.createElement("span", { className }, /* @__PURE__ */ import_react114.default.createElement("span", null, `Created on ${formatDayShort(parseNaiveDate(inserted_at))}`, !showUpdatedAt && !!authorLabel && ` by ${authorLabel}`), showUpdatedAt && /* @__PURE__ */ import_react114.default.createElement(import_react114.default.Fragment, null, " \u2022 ", /* @__PURE__ */ import_react114.default.createElement("span", null, `last updated on ${formatDayShort(parseNaiveDate(updated_at))}`, !!authorLabel && ` by ${authorLabel}`)));
+  return /* @__PURE__ */ import_react115.default.createElement("span", { className }, /* @__PURE__ */ import_react115.default.createElement("span", null, `Created on ${formatDayShort(parseNaiveDate(inserted_at))}`, !showUpdatedAt && !!authorLabel && ` by ${authorLabel}`), showUpdatedAt && /* @__PURE__ */ import_react115.default.createElement(import_react115.default.Fragment, null, " \u2022 ", /* @__PURE__ */ import_react115.default.createElement("span", null, `last updated on ${formatDayShort(parseNaiveDate(updated_at))}`, !!authorLabel && ` by ${authorLabel}`)));
 }
-
-// js/dashboard/components/notice.tsx
-var import_react115 = __toESM(require_react());
-var import_classnames35 = __toESM(require_classnames());
-var themeClassNames = {
-  yellow: "bg-yellow-100/60 dark:bg-yellow-700/30",
-  red: "bg-red-100 dark:bg-red-700/30"
-};
-var Notice = ({
-  title,
-  description,
-  theme = "yellow",
-  className
-}) => /* @__PURE__ */ import_react115.default.createElement(
-  "div",
-  {
-    className: (0, import_classnames35.default)(
-      "flex flex-col gap-y-0.5 rounded-md px-3 py-2.5",
-      themeClassNames[theme],
-      className
-    )
-  },
-  /* @__PURE__ */ import_react115.default.createElement("p", { className: "text-sm font-semibold text-gray-900 dark:text-gray-100" }, title),
-  description && /* @__PURE__ */ import_react115.default.createElement("p", { className: "text-sm text-gray-600 dark:text-gray-200/60" }, description)
-);
 
 // js/dashboard/nav-menu/submenu.tsx
 var import_react116 = __toESM(require_react());

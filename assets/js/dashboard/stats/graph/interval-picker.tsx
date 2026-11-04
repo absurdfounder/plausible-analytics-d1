@@ -60,6 +60,8 @@ export const useStoredInterval = (
   const customTo = to?.valueOf()
   const customComparisonFrom = compare_from?.valueOf()
   const customComparisonTo = compare_to?.valueOf()
+  const selectedDate = props.date?.valueOf()
+  const nativeStatsBegin = props.nativeStatsBegin
 
   const { availableIntervals, storableIntervals } = useMemo(() => {
     return {
@@ -73,7 +75,9 @@ export const useStoredInterval = (
     customTo,
     comparison,
     customComparisonFrom,
-    customComparisonTo
+    customComparisonTo,
+    selectedDate,
+    nativeStatsBegin
   ])
 
   const isValid = useCallback(

@@ -77,6 +77,8 @@ export type MainGraphResponse = Pick<
     (ResultItem & { change: [number | null] | null }) | null
   >
   meta: {
+    imports_included?: boolean
+    imports_skip_reason?: string
     partial_time_labels: string[] | null
     comparison_partial_time_labels: string[] | null
     time_labels: string[]
