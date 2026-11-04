@@ -3,6 +3,7 @@
   "version": "1.4.0",
   "license": "AGPL-3.0-or-later",
   "scripts": {
+    "build:cloudflare-dashboard": "tailwindcss -i css/app.css -o ../cloudflare-d1/public/assets/app.css --minify && esbuild js/dashboard.tsx --bundle --format=esm --target=es2020 --loader:.js=jsx --define:BUILD_EXTRA=false --outfile=../cloudflare-d1/public/assets/dashboard.js",
     "test": "TZ=UTC jest",
     "format": "prettier --write \"**/*.{js,css,ts,tsx}\"",
     "check-format": "prettier --check \"**/*.{js,css,ts,tsx}\"",
@@ -44,6 +45,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.23.0",
+    "@tailwindcss/cli": "^4.1.12",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.4.8",
     "@testing-library/react": "^16.3.2",
@@ -54,6 +56,7 @@
     "@types/react-dom": "^18.3.0",
     "@types/react-flatpickr": "^3.8.11",
     "@types/topojson-client": "^3.1.4",
+    "esbuild": "^0.25.12",
     "eslint": "^9.23.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-import-resolver-typescript": "^4.3.1",
@@ -70,6 +73,7 @@
     "prettier": "^3.3.3",
     "stylelint": "^16.17.0",
     "stylelint-config-standard": "^36.0.1",
+    "tailwindcss": "^4.1.12",
     "ts-jest": "^29.2.4",
     "typescript": "^5.5.4",
     "typescript-eslint": "^8.29.0"

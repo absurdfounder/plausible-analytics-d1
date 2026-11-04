@@ -48,7 +48,7 @@ export function ImportsIncludedProvider({
         ? {
             title: 'Imported data not shown in graph',
             description:
-              'Available as daily totals only. Switch to a daily view to include it.'
+              'This Plausible import contains daily totals, not visit timestamps, so hourly values cannot be reconstructed. Select a daily interval to include the imported history.'
           }
         : null
     return {
