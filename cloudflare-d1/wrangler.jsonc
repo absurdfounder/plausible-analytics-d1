@@ -3,7 +3,10 @@
   "name": "plausible-d1",
   "main": "src/index.ts",
   "compatibility_date": "2025-09-01",
-  "observability": { "enabled": true },
+  "observability": {
+    "enabled": true,
+    "issues": { "enabled": true }
+  },
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",

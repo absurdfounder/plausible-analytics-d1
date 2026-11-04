@@ -78,6 +78,18 @@ app.use('/api/event', cors({ origin: '*', allowMethods: ['POST', 'OPTIONS'], all
 app.options('/api/event', (c) => c.body(null, 204))
 app.post('/api/event', collectEvent)
 
+// Public synthetic-monitor endpoint: verifies the Worker is serving requests
+// and that its D1 binding can execute a lightweight query. Never expose errors.
+app.get('/healthz', async (c) => {
+  try {
+    const result = await c.env.DB.prepare('SELECT 1 AS ok').first<{ ok: number }>()
+    if (result?.ok !== 1) throw new Error('D1 health query returned no result')
+    return c.json({ ok: true, database: 'ok' }, 200, { 'Cache-Control': 'no-store' })
+  } catch {
+    return c.json({ ok: false, database: 'unavailable' }, 503, { 'Cache-Control': 'no-store' })
+  }
+})
+
 app.get('/login', (c) => c.html(loginPage()))
 app.post('/login', async (c) => {
   const form = await c.req.parseBody()
