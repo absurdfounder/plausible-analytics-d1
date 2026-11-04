@@ -167,43 +167,61 @@ async function getSiteByDomain(db: D1Database, domain: string | undefined) {
 
 async function listSites(c: Ctx) {
   const now = Math.floor(Date.now() / 1000)
-  const rows = await c.env.DB.prepare(
+  const registered = await c.env.DB.prepare(
     `SELECT s.id, s.domain, s.created_at,
-      COUNT(e.event_id) AS events,
-      MAX(e.ts) AS last_event_ts,
-      COUNT(DISTINCT CASE WHEN e.ts >= ? THEN e.visitor_id END) AS visitors_24h,
-      COUNT(DISTINCT CASE WHEN e.ts >= ? AND e.ts < ? THEN e.visitor_id END) AS previous_visitors_24h,
-      COUNT(DISTINCT CASE WHEN e.ts >= ? THEN e.visitor_id END) AS online,
-      EXISTS (SELECT 1 FROM plausible_history h WHERE h.site_id = s.id) AS has_imports
-     FROM pd_sites s LEFT JOIN pd_events e ON e.site_id = s.id
-     GROUP BY s.id, s.domain, s.created_at ORDER BY lower(s.domain)`,
-  ).bind(now - 86_400, now - 172_800, now - 86_400, now - 300).all<RegisteredSite & {
-    events: number; last_event_ts: number | null; visitors_24h: number; previous_visitors_24h: number; online: number; has_imports: number
-  }>()
-  const hourly = await c.env.DB.prepare(
+       EXISTS (SELECT 1 FROM plausible_history h WHERE h.site_id = s.id) AS has_imports
+     FROM pd_sites s ORDER BY lower(s.domain)`,
+  ).all<RegisteredSite & { has_imports: number }>()
+  const siteIds = registered.results.map((site) => site.id)
+  if (!siteIds.length) return c.json({ data: [] })
+
+  // Keep these scans within the composite (site_id, ts) index. Imported history
+  // lives in plausible_history and does not need to be scanned for live cards.
+  const siteList = siteIds.map(() => '?').join(', ')
+  const summaryPromise = c.env.DB.prepare(
+    `SELECT site_id,
+       COUNT(*) AS events,
+       MAX(ts) AS last_event_ts,
+       COUNT(DISTINCT CASE WHEN ts >= ? THEN visitor_id END) AS visitors_24h,
+       COUNT(DISTINCT CASE WHEN ts < ? THEN visitor_id END) AS previous_visitors_24h,
+       COUNT(DISTINCT CASE WHEN ts >= ? THEN visitor_id END) AS online
+     FROM pd_events
+     WHERE site_id IN (${siteList}) AND ts >= ?
+     GROUP BY site_id`,
+  ).bind(now - 86_400, now - 86_400, now - 300, ...siteIds, now - 172_800)
+    .all<{ site_id: string; events: number; last_event_ts: number | null; visitors_24h: number; previous_visitors_24h: number; online: number }>()
+  const firstHour = Math.floor(now / 3600) - 23
+  const hourlyPromise = c.env.DB.prepare(
     `SELECT site_id, CAST(ts / 3600 AS INTEGER) AS hour, COUNT(DISTINCT visitor_id) AS visitors
-       FROM pd_events WHERE ts >= ? GROUP BY site_id, CAST(ts / 3600 AS INTEGER)`,
-  ).bind(Math.floor(now / 3600) * 3600 - 23 * 3600).all<{ site_id: string; hour: number; visitors: number }>()
+       FROM pd_events
+      WHERE site_id IN (${siteList}) AND ts >= ?
+      GROUP BY site_id, CAST(ts / 3600 AS INTEGER)`,
+  ).bind(...siteIds, firstHour * 3600).all<{ site_id: string; hour: number; visitors: number }>()
+  const [summary, hourly] = await Promise.all([summaryPromise, hourlyPromise])
+  const summaryBySite = new Map(summary.results.map((row) => [row.site_id, row]))
   const sparklineBySite = new Map<string, number[]>()
   for (const row of hourly.results) {
     const values = sparklineBySite.get(row.site_id) ?? Array.from({ length: 24 }, () => 0)
-    const index = Number(row.hour) - (Math.floor(now / 3600) - 23)
+    const index = Number(row.hour) - firstHour
     if (index >= 0 && index < values.length) values[index] = Number(row.visitors ?? 0)
     sparklineBySite.set(row.site_id, values)
   }
-  return c.json({ data: rows.results.map((site) => ({
+  return c.json({ data: registered.results.map((site) => {
+    const live = summaryBySite.get(site.id)
+    return {
     domain: site.domain,
     id: site.id,
     created_at: site.created_at,
     needs_verification: false,
-    events: Number(site.events ?? 0),
-    last_event_ts: site.last_event_ts,
-    visitors_24h: Number(site.visitors_24h ?? 0),
-    previous_visitors_24h: Number(site.previous_visitors_24h ?? 0),
-    online: Number(site.online ?? 0),
+    events: Number(live?.events ?? 0),
+    last_event_ts: live?.last_event_ts ?? null,
+    visitors_24h: Number(live?.visitors_24h ?? 0),
+    previous_visitors_24h: Number(live?.previous_visitors_24h ?? 0),
+    online: Number(live?.online ?? 0),
     has_imports: Boolean(site.has_imports),
     sparkline: sparklineBySite.get(site.id) ?? Array.from({ length: 24 }, () => 0),
-  })) })
+  }
+  }) })
 }
 
 async function createSite(c: Ctx) {
@@ -296,7 +314,7 @@ async function dashboardPage(c: Ctx, site: RegisteredSite) {
 
 function sitesPage() {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Your websites — Plausible Analytics</title>${managementStyles()}</head><body><main class="wrap"><header class="top"><a class="brand" href="/sites"><span class="mark">↗</span><span>Plausible</span></a><form action="/logout" method="post"><button class="button secondary" type="submit">Log out</button></form></header><section class="sites-title"><h1>Your websites</h1></section><div class="sites-toolbar"><label class="search-box"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Search websites" aria-label="Search websites"></label><div class="toolbar-actions"><label class="sort-box"><span class="sr-only">Sort websites</span><select id="sort"><option value="traffic">Sort by traffic</option><option value="name">Sort alphabetically</option></select></label><a class="button primary add-button" href="/sites/new"><span aria-hidden="true">＋</span> Add website</a></div></div><p id="sites-note" class="sites-note">Loading your websites…</p><ul id="sites" class="site-grid" aria-live="polite"></ul></main><script>
-const root=document.getElementById('sites'),search=document.getElementById('search'),sort=document.getElementById('sort'),note=document.getElementById('sites-note');let sites=[];const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const pct=s=>{const a=Number(s.visitors_24h||0),b=Number(s.previous_visitors_24h||0);if(!b)return null;return Math.round((a-b)/b*100)};const spark=values=>{const nums=Array.isArray(values)?values.map(Number):Array(24).fill(0);const max=Math.max(1,...nums);const pts=nums.map((v,i)=>[i*340/Math.max(1,nums.length-1),42-(v/max*32)]);const line=pts.map(p=>p.join(',')).join(' '),area='M 0 48 L '+pts.map(p=>p.join(' ')).join(' L ')+' L 340 48 Z';return'<svg class="sparkline" viewBox="0 0 340 48" preserveAspectRatio="none" role="img" aria-label="Hourly visitors in the last 24 hours"><path class="spark-area" d="'+area+'"></path><polyline points="'+line+'"></polyline></svg>'};const render=()=>{const query=search.value.trim().toLowerCase();const ordered=sites.filter(s=>s.domain.toLowerCase().includes(query));ordered.sort(sort.value==='name'?(a,b)=>a.domain.localeCompare(b.domain):(a,b)=>Number(b.visitors_24h||0)-Number(a.visitors_24h||0));if(!ordered.length){root.innerHTML='<li class="empty">'+(sites.length?'<h2>No sites found</h2><p>Try a different search.</p>':'<h2>Add your first website</h2><p>Collect simple, privacy-friendly stats to understand your audience.</p><a class="button primary" href="/sites/new">＋ Add website</a>')+'</li>';return}root.innerHTML=ordered.map(s=>{const change=pct(s),changeText=change===null?'—':(change>0?'+':'')+change+'%';const changeClass=change===null?'muted':change>=0?'up':'down';const dashboard='/'+encodeURIComponent(s.domain);return'<li class="site-card"><div class="site-card-head"><img class="favicon" src="/favicon/sources/'+encodeURIComponent(s.domain)+'?placeholder=site" onerror="this.onerror=null;this.src=\'/favicon/placeholders/site\'" alt=""><a class="site-domain" href="'+dashboard+'">'+escapeHtml(s.domain)+'</a><a class="site-settings" href="'+dashboard+'/settings/general" aria-label="Settings for '+escapeHtml(s.domain)+'" title="Site settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"></path><path d="m19.4 13.5 1.1.8-1.1 1.9-1.3-.5a7.8 7.8 0 0 1-1.5.9l-.2 1.4h-2.2l-.3-1.4a7.8 7.8 0 0 1-1.7 0l-.7 1.2-2-.8.2-1.5a7.7 7.7 0 0 1-1.2-1.3l-1.4.2-.8-2 1.2-.8a7.8 7.8 0 0 1-.1-1.8l-1.2-.7.8-2 1.5.1a7.8 7.8 0 0 1 1.3-1.2L9.6 4.8l2-.8.8 1.2a7.8 7.8 0 0 1 1.8 0l.7-1.2 2 .8-.1 1.5a7.8 7.8 0 0 1 1.2 1.3l1.4-.2.8 2-1.2.8a7.8 7.8 0 0 1 0 1.8Z"></path></svg></a></div><a class="site-card-link" href="'+dashboard+'">'+spark(s.sparkline)+'<div class="site-stats"><div><strong>'+Number(s.visitors_24h||0).toLocaleString()+'</strong><span>visitor'+(Number(s.visitors_24h||0)===1?'':'s')+' in last 24h</span></div><span class="change '+changeClass+'">'+escapeHtml(changeText)+'</span></div></a></li>'}).join('')};search.addEventListener('input',render);sort.addEventListener('change',render);fetch('/api/sites').then(r=>{if(!r.ok)throw new Error('Could not load your websites. Refresh and try again.');return r.json()}).then(result=>{sites=result.data||[];note.textContent='Live visitors are shown for the last 24 hours. Imported Plausible history appears in each site’s dashboard.';render()}).catch(e=>{note.textContent=e.message;root.innerHTML=''})
+const root=document.getElementById('sites'),search=document.getElementById('search'),sort=document.getElementById('sort'),note=document.getElementById('sites-note');let sites=[];const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const pct=s=>{const a=Number(s.visitors_24h||0),b=Number(s.previous_visitors_24h||0);if(!b)return null;return Math.round((a-b)/b*100)};const spark=values=>{const nums=Array.isArray(values)?values.map(Number):Array(24).fill(0);const max=Math.max(1,...nums);const pts=nums.map((v,i)=>[i*340/Math.max(1,nums.length-1),42-(v/max*32)]);const line=pts.map(p=>p.join(',')).join(' '),area='M 0 48 L '+pts.map(p=>p.join(' ')).join(' L ')+' L 340 48 Z';return'<svg class="sparkline" viewBox="0 0 340 48" preserveAspectRatio="none" role="img" aria-label="Hourly visitors in the last 24 hours"><path class="spark-area" d="'+area+'"></path><polyline points="'+line+'"></polyline></svg>'};const render=()=>{const query=search.value.trim().toLowerCase();const ordered=sites.filter(s=>s.domain.toLowerCase().includes(query));ordered.sort(sort.value==='name'?(a,b)=>a.domain.localeCompare(b.domain):(a,b)=>Number(b.visitors_24h||0)-Number(a.visitors_24h||0));if(!ordered.length){root.innerHTML='<li class="empty">'+(sites.length?'<h2>No sites found</h2><p>Try a different search.</p>':'<h2>Add your first website</h2><p>Collect simple, privacy-friendly stats to understand your audience.</p><a class="button primary" href="/sites/new">＋ Add website</a>')+'</li>';return}root.innerHTML=ordered.map(s=>{const change=pct(s),changeText=change===null?'—':(change>0?'+':'')+change+'%';const changeClass=change===null?'muted':change>=0?'up':'down';const dashboard='/'+encodeURIComponent(s.domain);return'<li class="site-card"><div class="site-card-head"><img class="favicon" src="/favicon/sources/'+encodeURIComponent(s.domain)+'?placeholder=site" onerror="this.onerror=null;this.src=\'/favicon/placeholders/site\'" alt=""><a class="site-domain" href="'+dashboard+'">'+escapeHtml(s.domain)+'</a><a class="site-settings" href="'+dashboard+'/settings/general" aria-label="Settings for '+escapeHtml(s.domain)+'" title="Site settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"></path><path d="m19.4 13.5 1.1.8-1.1 1.9-1.3-.5a7.8 7.8 0 0 1-1.5.9l-.2 1.4h-2.2l-.3-1.4a7.8 7.8 0 0 1-1.7 0l-.7 1.2-2-.8.2-1.5a7.7 7.7 0 0 1-1.2-1.3l-1.4.2-.8-2 1.2-.8a7.8 7.8 0 0 1-.1-1.8l-1.2-.7.8-2 1.5.1a7.8 7.8 0 0 1 1.3-1.2L9.6 4.8l2-.8.8 1.2a7.8 7.8 0 0 1 1.8 0l.7-1.2 2 .8-.1 1.5a7.8 7.8 0 0 1 1.2 1.3l1.4-.2.8 2-1.2.8a7.8 7.8 0 0 1 0 1.8Z"></path></svg></a></div><a class="site-card-link" href="'+dashboard+'">'+spark(s.sparkline)+'<div class="site-stats"><div><strong>'+Number(s.visitors_24h||0).toLocaleString()+'</strong><span>visitor'+(Number(s.visitors_24h||0)===1?'':'s')+' in last 24h</span></div><span class="change '+changeClass+'">'+escapeHtml(changeText)+'</span></div></a></li>'}).join('')};search.addEventListener('input',render);sort.addEventListener('change',render);const loadSites=async()=>{note.textContent='Loading your websites…';const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),12000);try{const response=await fetch('/api/sites',{signal:controller.signal});if(!response.ok)throw new Error('Could not load your websites. Refresh and try again.');const result=await response.json();sites=result.data||[];note.textContent='Live visitors are shown for the last 24 hours. Imported Plausible history appears in each site’s dashboard.';render()}catch(e){note.textContent=e.name==='AbortError'?'The request timed out. Your sites are safe; try loading again.':'Could not load your websites. Refresh and try again.';root.innerHTML='<li class="empty"><h2>Sites could not load</h2><p>Check your connection, then retry.</p><button id="retry-sites" class="button secondary">Retry</button></li>';document.getElementById('retry-sites').addEventListener('click',loadSites)}finally{clearTimeout(timer)}};loadSites()
 </script></body></html>`
 }
 
